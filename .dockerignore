@@ -1,0 +1,17 @@
+.git
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+*.log
+data/training*
+data/chat_training*
+data/osrm
+outputs/models
+outputs/predictions
+outputs/traces
+frontend/node_modules
+frontend/dist
+.env
+.env.docker
+.env.docker.gpu

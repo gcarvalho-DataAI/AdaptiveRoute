@@ -1,0 +1,103 @@
+services:
+  api:
+    build: .
+    image: adaptiveroute-api:latest
+    env_file:
+      - .env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8090:8090"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./outputs:/app/outputs:ro
+      - ./data:/app/data:ro
+
+  osrm:
+    profiles: ["routing"]
+    image: osrm/osrm-backend:latest
+    command: osrm-routed --algorithm mld /data/new-york-latest.osrm
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data/osrm:/data:ro
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: adaptiveroute
+      POSTGRES_PASSWORD: adaptiveroute
+      POSTGRES_DB: adaptiveroute
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adaptiveroute -d adaptiveroute"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  frontend:
+    image: node:22-slim
+    working_dir: /app/frontend
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_ADAPTIVEROUTE_API_BASE_URL: http://127.0.0.1:8090
+    volumes:
+      - ./frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
+
+  api-gpu:
+    profiles: ["gpu"]
+    build:
+      context: .
+      args:
+        UV_SYNC_ARGS: "--no-dev --group train"
+    image: adaptiveroute-api:latest
+    env_file:
+      - .env.docker.gpu
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8090:8090"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./outputs:/app/outputs:ro
+      - ./data:/app/data:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]
+
+volumes:
+  mongo_data:
+  postgres_data:
+  frontend_node_modules:

@@ -1,0 +1,123 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "llm-api: run all",
+      "type": "shell",
+      "command": "/home/gcarvalho/Documentos/llama_cpp_api/scripts/run_all.sh",
+      "options": {
+        "cwd": "/home/gcarvalho/Documentos/llama_cpp_api"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "llm-api: stop all",
+      "type": "shell",
+      "command": "/home/gcarvalho/Documentos/llama_cpp_api/scripts/stop_all.sh",
+      "options": {
+        "cwd": "/home/gcarvalho/Documentos/llama_cpp_api"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "agentic-api: smoke test",
+      "type": "shell",
+      "command": "curl -sS http://127.0.0.1:8090/health && echo && curl -sS http://127.0.0.1:8090/v1/agentic/replan -H 'Content-Type: application/json' -d '{\"message\":\"Customer C3 cannot receive now.\"}' | python3 -m json.tool",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "tests: pytest",
+      "type": "shell",
+      "command": "uv run pytest",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: up",
+      "type": "shell",
+      "command": "./scripts/docker_up.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: logs",
+      "type": "shell",
+      "command": "./scripts/docker_compose_cmd.sh logs -f api frontend mongo postgres",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: fullstack open frontend",
+      "type": "shell",
+      "command": "./scripts/docker_up.sh && for i in $(seq 1 60); do curl -fsS http://127.0.0.1:5173 >/dev/null && break; sleep 1; done; xdg-open http://127.0.0.1:5173",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: up gpu",
+      "type": "shell",
+      "command": "./scripts/docker_up_gpu.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: down",
+      "type": "shell",
+      "command": "./scripts/docker_down.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: smoke test",
+      "type": "shell",
+      "command": "./scripts/smoke_docker_stack.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "rag: ingest docs",
+      "type": "shell",
+      "command": "uv run python scripts/ingest_rag_documents.py README.md docs",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "rag: query",
+      "type": "shell",
+      "command": "uv run python scripts/query_rag.py 'How does the routing policy model work?'",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend: local dev requires host npm",
+      "type": "shell",
+      "command": "if [ -f frontend/package.json ]; then cd frontend && npm run dev; else echo 'No frontend/package.json found in this workspace.'; exit 1; fi",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

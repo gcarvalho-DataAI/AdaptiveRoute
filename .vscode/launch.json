@@ -1,0 +1,88 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "AdaptiveRoute: Agentic API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["adaptiveroute.api.app:app", "--host", "127.0.0.1", "--port", "8090"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": true
+    },
+    {
+      "name": "AdaptiveRoute: Agentic Demo (.env)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/agentic_replan_demo.py",
+      "args": ["--from-env", "Customer C3 cannot receive now."],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": true
+    },
+    {
+      "name": "AdaptiveRoute: LoRA Policy API",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/serve_lora_policy_api.py",
+      "args": [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8010",
+        "--model-id",
+        "Qwen/Qwen2.5-7B-Instruct",
+        "--adapter-path",
+        "outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5",
+        "--served-model-name",
+        "adaptiveroute-routing-policy",
+        "--bf16"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": true
+    },
+    {
+      "name": "LLM Backend: Local API",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "/home/gcarvalho/Documentos/llama_cpp_api/scripts/run_all.sh",
+      "cwd": "/home/gcarvalho/Documentos/llama_cpp_api"
+    },
+    {
+      "name": "Frontend: Local Dev Server (requires host npm)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "if [ -f frontend/package.json ]; then cd frontend && npm run dev; else echo 'No frontend/package.json found in this workspace.'; read -p 'Press Enter to close...'; fi",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "AdaptiveRoute: Docker Full Stack",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/docker_up.sh && for i in $(seq 1 60); do curl -fsS http://127.0.0.1:5173 >/dev/null && break; sleep 1; done; xdg-open http://127.0.0.1:5173",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "AdaptiveRoute: Backend + Agentic API",
+      "configurations": ["LLM Backend: Local API", "AdaptiveRoute: Agentic API"],
+      "stopAll": true
+    },
+    {
+      "name": "AdaptiveRoute: Local Full Stack (requires host npm)",
+      "configurations": ["LLM Backend: Local API", "AdaptiveRoute: Agentic API", "Frontend: Local Dev Server (requires host npm)"],
+      "stopAll": true
+    },
+    {
+      "name": "AdaptiveRoute: Docker Full Stack + Browser",
+      "configurations": ["AdaptiveRoute: Docker Full Stack"],
+      "stopAll": true
+    }
+  ]
+}
