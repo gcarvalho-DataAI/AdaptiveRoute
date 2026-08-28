@@ -21,12 +21,12 @@ Recommended hardening:
 
 ## Test Suite Stability
 
-The focused API/agentic test suite is stable. The full test suite can trigger a native segmentation fault in the Pyomo/HiGHS stack after repeated solver invocations in one Python process on the current local environment.
+The focused API/agentic test suite is stable. Solver authority tests run in a separate CI job using forked test processes. The full local test suite can still trigger a native segmentation fault in the Pyomo/HiGHS stack after repeated solver invocations in one Python process on the current local environment.
 
 Recommended hardening:
 
-- isolate solver-heavy tests in subprocesses;
-- split CI into fast API tests and solver integration tests;
+- keep solver-heavy tests isolated in subprocesses;
+- keep CI split into fast API tests and solver integration tests;
 - pin a known-stable HiGHS/Pyomo combination;
 - consider an alternate solver backend for integration tests.
 

@@ -49,7 +49,7 @@ from adaptiveroute.api.dependencies import (
     get_scenario_service,
 )
 from adaptiveroute.api.security import create_access_token, decode_access_token
-from adaptiveroute.api.settings import get_api_settings
+from adaptiveroute.api.settings import effective_jwt_secret, get_api_settings
 from adaptiveroute.domain.serialization import scenario_from_dict, scenario_to_dict
 from adaptiveroute.drivers import DriverService, driver_to_dict
 from adaptiveroute.memory.service import ConversationService
@@ -460,7 +460,7 @@ def driver_portal_login(
         "access_token": create_access_token(
             subject=driver.id,
             role="driver",
-            secret_key=settings.jwt_secret_key,
+            secret_key=effective_jwt_secret(settings),
             expires_minutes=settings.jwt_expires_minutes,
             extra_claims={"username": driver.metadata.get("username")},
         ),
@@ -524,7 +524,7 @@ def _authenticate_driver(
     if credentials:
         settings = get_api_settings()
         try:
-            claims = decode_access_token(credentials.credentials, secret_key=settings.jwt_secret_key)
+            claims = decode_access_token(credentials.credentials, secret_key=effective_jwt_secret(settings))
         except jwt.PyJWTError as exc:
             raise HTTPException(status_code=401, detail="Invalid driver token.") from exc
         if claims.get("role") != "driver" or not claims.get("sub"):

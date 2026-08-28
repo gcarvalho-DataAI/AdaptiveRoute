@@ -118,6 +118,7 @@ Recommended smoke test set:
 
 ```bash
 uv run pytest tests/test_memory_service.py tests/test_agentic_routing.py tests/test_drivers_and_planning_api.py tests/test_map_api.py
+uv run pytest --forked tests/test_pyomo_highs_solver.py tests/test_plan_validation.py
 ```
 
 Full test run:

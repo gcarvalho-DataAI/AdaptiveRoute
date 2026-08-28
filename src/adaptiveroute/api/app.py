@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from time import perf_counter
 from uuid import uuid4
 
@@ -9,14 +10,34 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from adaptiveroute.api.routes import router
-from adaptiveroute.api.settings import get_api_settings, parse_cors_origins
+from adaptiveroute.api.settings import get_api_settings, is_insecure_jwt_secret, parse_cors_origins
 
 
 logger = logging.getLogger("adaptiveroute.api")
 
 
+def configure_logging() -> None:
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+    logger.propagate = False
+
+
 def create_app() -> FastAPI:
+    configure_logging()
     settings = get_api_settings()
+    if is_insecure_jwt_secret(settings.jwt_secret_key):
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "insecure_jwt_secret_replaced",
+                    "message": "Configured JWT secret is a placeholder; using a process-local random secret.",
+                },
+                sort_keys=True,
+            )
+        )
     app = FastAPI(title="AdaptiveRoute Agentic API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,

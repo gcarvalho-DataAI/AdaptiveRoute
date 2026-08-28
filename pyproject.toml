@@ -22,6 +22,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.0",
+    "pytest-forked>=1.6.0",
 ]
 train = [
     "accelerate>=1.10.0",

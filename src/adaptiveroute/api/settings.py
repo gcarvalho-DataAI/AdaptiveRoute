@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from secrets import token_urlsafe
 from typing import Literal
 
 from pydantic import Field
@@ -38,6 +39,16 @@ class ApiSettings(BaseSettings):
     solver_mip_gap: float | None = Field(default=None, alias="ADAPTIVEROUTE_SOLVER_MIP_GAP")
 
 
+INSECURE_JWT_SECRET_VALUES = frozenset(
+    {
+        "",
+        "adaptiveroute-dev-secret-change-me",
+        "change-this-secret-for-non-local-runs",
+    }
+)
+_RUNTIME_JWT_SECRET = token_urlsafe(48)
+
+
 @lru_cache
 def get_api_settings() -> ApiSettings:
     return ApiSettings()
@@ -45,3 +56,13 @@ def get_api_settings() -> ApiSettings:
 
 def parse_cors_origins(value: str) -> list[str]:
     return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+def is_insecure_jwt_secret(secret_key: str) -> bool:
+    return secret_key.strip() in INSECURE_JWT_SECRET_VALUES
+
+
+def effective_jwt_secret(settings: ApiSettings) -> str:
+    if is_insecure_jwt_secret(settings.jwt_secret_key):
+        return _RUNTIME_JWT_SECRET
+    return settings.jwt_secret_key

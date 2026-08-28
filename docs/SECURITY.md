@@ -8,6 +8,7 @@ AdaptiveRoute is a proof of concept, but the current implementation includes a m
 - Legacy driver records that still contain `temporary_password` are migrated to `password_hash` on successful login.
 - Driver API responses do not expose `password_hash` or raw temporary passwords.
 - Driver login returns a signed JWT instead of a forgeable mock token.
+- Placeholder JWT secrets are replaced at startup by a process-local random secret.
 - CORS origins are configurable through `ADAPTIVEROUTE_CORS_ALLOW_ORIGINS` instead of being hardcoded as `*`.
 
 ## Relevant Environment Variables
@@ -18,12 +19,13 @@ ADAPTIVEROUTE_JWT_SECRET_KEY=change-this-secret-for-non-local-runs
 ADAPTIVEROUTE_JWT_EXPIRES_MINUTES=480
 ```
 
-For any non-local run, `ADAPTIVEROUTE_JWT_SECRET_KEY` must be replaced with a strong secret provided by a secret manager or deployment environment.
+For any non-local run, `ADAPTIVEROUTE_JWT_SECRET_KEY` must still be replaced with a strong secret provided by a secret manager or deployment environment. If a placeholder value is used, AdaptiveRoute signs tokens with a process-local random secret instead of the known placeholder. Existing driver tokens are invalidated when the API process restarts.
 
 ## Current PoC Limitations
 
 - Admin login is still implemented in the frontend for demo convenience.
 - Driver JWT is accepted by driver-scoped status/profile endpoints; username/password payloads remain as a compatibility fallback for the PoC.
+- Runtime-generated JWT secrets are acceptable for local demos but not for multi-instance or restart-tolerant deployments.
 - There is no password reset flow.
 - There is no account lockout/rate limiting.
 - There is no HTTPS termination inside the local Compose stack.

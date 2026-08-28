@@ -1,7 +1,9 @@
-from fastapi.testclient import TestClient
 import jwt
+import logging
+import pytest
+from fastapi.testclient import TestClient
 
-from adaptiveroute.api.app import create_app
+from adaptiveroute.api.app import create_app, logger as api_logger
 from adaptiveroute.api.dependencies import clear_dependency_caches
 
 
@@ -67,6 +69,69 @@ def test_list_endpoints_support_pagination(monkeypatch) -> None:
     paged_scenarios = client.get("/v1/scenarios?skip=0&limit=1")
     assert paged_scenarios.status_code == 200
     assert len(paged_scenarios.json()) == 1
+
+    clear_dependency_caches()
+
+
+def test_api_logger_emits_info_after_app_start(monkeypatch) -> None:
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    clear_dependency_caches()
+
+    create_app()
+
+    assert api_logger.isEnabledFor(logging.INFO)
+    assert api_logger.handlers
+
+    clear_dependency_caches()
+
+
+def test_placeholder_jwt_secret_is_not_used_for_signing(monkeypatch) -> None:
+    placeholder_secret = "change-this-secret-for-non-local-runs"
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    monkeypatch.setenv("ADAPTIVEROUTE_JWT_SECRET_KEY", placeholder_secret)
+    clear_dependency_caches()
+    client = TestClient(create_app())
+
+    client.post(
+        "/v1/drivers",
+        json={
+            "id": "DRIVER-PLACEHOLDER-JWT",
+            "name": "Placeholder JWT Driver",
+            "vehicle_id": "V1",
+            "capacity": 20,
+            "metadata": {"username": "placeholder-jwt-driver", "temporary_password": "secret"},
+        },
+    )
+    client.post(
+        "/v1/operational-routes",
+        json={
+            "id": "PLACEHOLDER-JWT-ROUTE",
+            "driver_id": "DRIVER-PLACEHOLDER-JWT",
+            "scenario_id": "demo-cvrp-8",
+        },
+    )
+    login_response = client.post(
+        "/v1/driver-portal/login",
+        json={"username": "placeholder-jwt-driver", "password": "secret"},
+    )
+    assert login_response.status_code == 200
+
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(login_response.json()["access_token"], placeholder_secret, algorithms=["HS256"])
+
+    forged_token = jwt.encode(
+        {"sub": "DRIVER-PLACEHOLDER-JWT", "role": "driver"},
+        placeholder_secret,
+        algorithm="HS256",
+    )
+    forged_response = client.post(
+        "/v1/driver-portal/routes/PLACEHOLDER-JWT-ROUTE/status",
+        headers={"Authorization": f"Bearer {forged_token}"},
+        json={"status": "in_progress"},
+    )
+    assert forged_response.status_code == 401
 
     clear_dependency_caches()
 
