@@ -2,6 +2,20 @@
 
 AdaptiveRoute is a small routing replanning engine for last-mile logistics. The first milestone is a deterministic CVRP core: a synthetic scenario is solved by Pyomo + HiGHS, converted into route plans, and checked by an independent validator.
 
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — system components, runtime roles, storage and deployment shape.
+- [Software Engineering Design](docs/SOFTWARE_ENGINEERING.md) — package boundaries, service/repository pattern, testing and production hardening.
+- [Agentic Workflow](docs/AGENTIC_WORKFLOW.md) — LangGraph nodes, routing policy, validation, repair and fallback.
+- [Deployment](docs/DEPLOYMENT.md) — local, Docker, OSRM, GPU and local LLM setup.
+- [API Reference](docs/API_REFERENCE.md) — FastAPI endpoints and example payloads.
+- [Frontend UX and Roles](docs/FRONTEND_UX.md) — admin/driver workspaces, route selection, scenario and chat UX.
+- [Evaluation Methodology](docs/EVALUATION.md) — solver, model, capacity and workflow evaluation.
+- [Training](docs/TRAINING.md) — SFT/LoRA workflow and commands.
+- [Model Decision](docs/MODEL_DECISION.md) — selected LoRA adapter and model comparison.
+- [Model Capacity Benchmark](docs/MODEL_CAPACITY_BENCHMARK.md) — current scenario-size viability boundary.
+- [Fine-tuning Report](docs/model_finetuning_report.pdf) — formal report for external review.
+
 ## Setup
 
 ```bash
