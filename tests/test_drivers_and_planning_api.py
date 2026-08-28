@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import jwt
 
 from adaptiveroute.api.app import create_app
 from adaptiveroute.api.dependencies import clear_dependency_caches
@@ -35,6 +36,37 @@ def test_driver_crud_and_daily_planning(monkeypatch) -> None:
     body = plan_response.json()
     assert body["created_route_count"] == 2
     assert {route["driver_id"] for route in body["routes"]} == {"DRIVER-001", "DRIVER-002"}
+
+    clear_dependency_caches()
+
+
+def test_list_endpoints_support_pagination(monkeypatch) -> None:
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    clear_dependency_caches()
+    client = TestClient(create_app())
+
+    for index in range(1, 4):
+        response = client.post(
+            "/v1/drivers",
+            json={
+                "id": f"PAGE-DRIVER-{index:03d}",
+                "name": f"Page Driver {index}",
+                "vehicle_id": f"V{index}",
+                "capacity": 20,
+                "metadata": {"username": f"page-driver-{index}", "temporary_password": "demo"},
+            },
+        )
+        assert response.status_code == 200
+
+    paged_drivers = client.get("/v1/drivers?skip=1&limit=1")
+    assert paged_drivers.status_code == 200
+    assert [driver["id"] for driver in paged_drivers.json()] == ["PAGE-DRIVER-002"]
+
+    client.post("/v1/scenarios/demo")
+    paged_scenarios = client.get("/v1/scenarios?skip=0&limit=1")
+    assert paged_scenarios.status_code == 200
+    assert len(paged_scenarios.json()) == 1
 
     clear_dependency_caches()
 
@@ -112,10 +144,11 @@ def test_create_scenario_from_orders_file_csv(monkeypatch) -> None:
 def test_driver_portal_login_and_own_route_update(monkeypatch) -> None:
     monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
     monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    monkeypatch.setenv("ADAPTIVEROUTE_JWT_SECRET_KEY", "test-secret-with-at-least-32-bytes")
     clear_dependency_caches()
     client = TestClient(create_app())
 
-    client.post(
+    create_response = client.post(
         "/v1/drivers",
         json={
             "id": "DRIVER-PORTAL-1",
@@ -125,6 +158,10 @@ def test_driver_portal_login_and_own_route_update(monkeypatch) -> None:
             "metadata": {"username": "portal-driver", "temporary_password": "secret"},
         },
     )
+    assert create_response.status_code == 200
+    assert "temporary_password" not in create_response.json()["metadata"]
+    assert "password_hash" not in create_response.json()["metadata"]
+    assert create_response.json()["metadata"]["has_password"] is True
     client.post(
         "/v1/operational-routes",
         json={"id": "PORTAL-ROUTE-001", "driver_id": "DRIVER-PORTAL-1", "scenario_id": "demo-cvrp-8"},
@@ -136,13 +173,37 @@ def test_driver_portal_login_and_own_route_update(monkeypatch) -> None:
     )
     assert login_response.status_code == 200
     assert login_response.json()["routes"][0]["id"] == "PORTAL-ROUTE-001"
+    token = login_response.json()["access_token"]
+    assert not token.startswith("mock-driver-token:")
+    claims = jwt.decode(token, "test-secret-with-at-least-32-bytes", algorithms=["HS256"])
+    assert claims["sub"] == "DRIVER-PORTAL-1"
+    assert claims["role"] == "driver"
+    assert claims["username"] == "portal-driver"
+    assert "password_hash" not in login_response.json()["driver"]["metadata"]
 
     update_response = client.post(
         "/v1/driver-portal/routes/PORTAL-ROUTE-001/status",
-        json={"username": "portal-driver", "password": "secret", "status": "in_progress"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"status": "in_progress"},
     )
     assert update_response.status_code == 200
     assert update_response.json()["status"] == "in_progress"
+
+    profile_response = client.put(
+        "/v1/driver-portal/profile",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"capacity": 22, "new_password": "new-secret"},
+    )
+    assert profile_response.status_code == 200
+    assert profile_response.json()["capacity"] == 22
+    assert "password_hash" not in profile_response.json()["metadata"]
+    assert profile_response.json()["metadata"]["has_password"] is True
+
+    relogin_response = client.post(
+        "/v1/driver-portal/login",
+        json={"username": "portal-driver", "password": "new-secret"},
+    )
+    assert relogin_response.status_code == 200
 
     clear_dependency_caches()
 

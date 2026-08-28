@@ -531,7 +531,7 @@ Implemented scope:
 Known limitations:
 
 - [ ] Spreadsheet import requires delivery latitude/longitude. Address-only geocoding is not implemented yet.
-- [ ] Driver authentication is mock-only; production must hash passwords and issue signed tokens.
+- [x] Driver authentication stores bcrypt password hashes and issues signed JWTs for driver-scoped actions.
 - [ ] Planning currently considers all available drivers in the repository. Add planning-session filters when fleet pools/regions/shifts need isolation.
 - [ ] Driver route editing is status-only. Add stop-level exception capture and approval workflow if required.
 - [ ] Add admin CRUD for editing/deleting drivers and scenarios after creation.

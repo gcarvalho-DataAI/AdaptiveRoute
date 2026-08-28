@@ -152,7 +152,7 @@ admin@adaptiveroute.com
 12345678
 ```
 
-Drivers use credentials created in the driver wizard. The current PoC stores driver password metadata as a demo credential, not as a production password hash.
+Drivers use credentials created in the driver wizard. Passwords are stored as bcrypt hashes and driver login returns a signed JWT for driver-scoped actions.
 
 ## Health Check
 
@@ -189,4 +189,3 @@ The following paths are intentionally not committed:
 - `frontend/dist/`.
 
 This prevents accidental commits of local secrets, generated datasets, OSRM files and model weights.
-

@@ -189,14 +189,14 @@ class DriverPortalResponse(BaseModel):
 
 
 class DriverRouteStatusRequest(BaseModel):
-    username: str
-    password: str
+    username: str | None = None
+    password: str | None = None
     status: Literal["assigned", "in_progress", "completed", "cancelled"]
 
 
 class DriverProfileUpdateRequest(BaseModel):
-    username: str
-    password: str
+    username: str | None = None
+    password: str | None = None
     new_password: str | None = None
     capacity: int | None = None
 

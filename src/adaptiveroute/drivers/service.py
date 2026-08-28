@@ -5,6 +5,7 @@ from typing import Any
 
 from adaptiveroute.drivers.models import DriverRecord, utc_now
 from adaptiveroute.drivers.repository import DriverRepository
+from adaptiveroute.api.security import hash_password, verify_password
 
 
 class DriverService:
@@ -26,6 +27,7 @@ class DriverService:
     ) -> DriverRecord:
         existing = self._repository.get_driver(driver_id)
         created_at = existing.created_at if existing else utc_now()
+        safe_metadata = self._with_hashed_password(metadata or {})
         driver = DriverRecord(
             id=driver_id,
             name=name,
@@ -37,7 +39,7 @@ class DriverService:
             shift_end=shift_end,
             created_at=created_at,
             updated_at=utc_now(),
-            metadata=metadata or {},
+            metadata=safe_metadata,
         )
         return self._repository.save_driver(driver)
 
@@ -72,7 +74,7 @@ class DriverService:
             region=region,
             shift_start=shift_start,
             shift_end=shift_end,
-            metadata=metadata or existing.metadata,
+            metadata=self._with_hashed_password(metadata or existing.metadata),
             updated_at=utc_now(),
         )
         return self._repository.save_driver(driver)
@@ -81,11 +83,38 @@ class DriverService:
         return self._repository.delete_driver(driver_id)
 
     def authenticate(self, *, username: str, password: str) -> DriverRecord | None:
+        normalized_username = username.strip().lower()
         for driver in self.list_drivers():
             metadata = driver.metadata or {}
-            if metadata.get("username") == username and metadata.get("temporary_password") == password:
+            if str(metadata.get("username", "")).strip().lower() != normalized_username:
+                continue
+            password_hash = metadata.get("password_hash")
+            if password_hash and verify_password(password, password_hash):
                 return driver
+            legacy_password = metadata.get("temporary_password")
+            if legacy_password and legacy_password == password:
+                migrated_metadata = self._with_hashed_password(metadata)
+                return self.update_driver(
+                    driver.id,
+                    name=driver.name,
+                    vehicle_id=driver.vehicle_id,
+                    capacity=driver.capacity,
+                    status=driver.status,
+                    region=driver.region,
+                    shift_start=driver.shift_start,
+                    shift_end=driver.shift_end,
+                    metadata=migrated_metadata,
+                )
         return None
+
+    def _with_hashed_password(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        safe_metadata = dict(metadata or {})
+        if "username" in safe_metadata:
+            safe_metadata["username"] = str(safe_metadata["username"]).strip().lower()
+        plain_password = safe_metadata.pop("temporary_password", None)
+        if plain_password:
+            safe_metadata["password_hash"] = hash_password(str(plain_password))
+        return safe_metadata
 
     def mark_on_route(self, driver_id: str) -> DriverRecord | None:
         return self._repository.update_status(driver_id, "on_route")
@@ -158,4 +187,10 @@ class DriverService:
 
 
 def driver_to_dict(driver: DriverRecord) -> dict[str, Any]:
-    return asdict(driver)
+    payload = asdict(driver)
+    metadata = dict(payload.get("metadata") or {})
+    has_password = bool(metadata.pop("password_hash", None) or metadata.pop("temporary_password", None))
+    if has_password:
+        metadata["has_password"] = True
+    payload["metadata"] = metadata
+    return payload

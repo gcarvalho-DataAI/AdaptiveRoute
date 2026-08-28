@@ -12,6 +12,12 @@ class ApiSettings(BaseSettings):
 
     host: str = Field(default="0.0.0.0", alias="ADAPTIVEROUTE_API_HOST")
     port: int = Field(default=8090, alias="ADAPTIVEROUTE_API_PORT")
+    cors_allow_origins: str = Field(
+        default="http://127.0.0.1:5173,http://localhost:5173",
+        alias="ADAPTIVEROUTE_CORS_ALLOW_ORIGINS",
+    )
+    jwt_secret_key: str = Field(default="adaptiveroute-dev-secret-change-me", alias="ADAPTIVEROUTE_JWT_SECRET_KEY")
+    jwt_expires_minutes: int = Field(default=480, alias="ADAPTIVEROUTE_JWT_EXPIRES_MINUTES")
     memory_backend: Literal["memory", "mongo"] = Field(default="memory", alias="ADAPTIVEROUTE_MEMORY_BACKEND")
     mongodb_uri: str = Field(default="mongodb://mongo:27017", alias="MONGODB_URI")
     mongodb_database: str = Field(default="adaptiveroute", alias="MONGODB_DATABASE")
@@ -35,3 +41,7 @@ class ApiSettings(BaseSettings):
 @lru_cache
 def get_api_settings() -> ApiSettings:
     return ApiSettings()
+
+
+def parse_cors_origins(value: str) -> list[str]:
+    return [origin.strip() for origin in value.split(",") if origin.strip()]

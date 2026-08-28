@@ -11,6 +11,8 @@ AdaptiveRoute is a small routing replanning engine for last-mile logistics. The 
 - [API Reference](docs/API_REFERENCE.md) — FastAPI endpoints and example payloads.
 - [Frontend UX and Roles](docs/FRONTEND_UX.md) — admin/driver workspaces, route selection, scenario and chat UX.
 - [Evaluation Methodology](docs/EVALUATION.md) — solver, model, capacity and workflow evaluation.
+- [Security Notes](docs/SECURITY.md) — current PoC security baseline and production requirements.
+- [Production Limitations](docs/PRODUCTION_LIMITATIONS.md) — solver, API, observability and model hardening backlog.
 - [Training](docs/TRAINING.md) — SFT/LoRA workflow and commands.
 - [Model Decision](docs/MODEL_DECISION.md) — selected LoRA adapter and model comparison.
 - [Model Capacity Benchmark](docs/MODEL_CAPACITY_BENCHMARK.md) — current scenario-size viability boundary.

@@ -593,7 +593,7 @@ function App() {
       shiftStart: driver.shift_start || "",
       shiftEnd: driver.shift_end || "",
       username: driver.metadata?.username || driver.id.toLowerCase().replaceAll("-", "."),
-      password: driver.metadata?.temporary_password || "",
+      password: "",
     });
   }
 
@@ -742,14 +742,16 @@ function App() {
       const route = routes.find((item) => item.id === routeId);
       const driver = route ? driverRecords.find((item) => item.id === route.driver_id) : null;
       const username = driver?.metadata?.username || form.loginUsername;
-      const password = driver?.metadata?.temporary_password || form.loginPassword;
-      if (!username || !password) throw new Error("Driver credentials are not available for this preview action.");
+      const password = form.loginPassword;
+      const token = driverSession?.access_token;
+      if (!token && (!username || !password)) throw new Error("Driver credentials are not available for this preview action.");
       setStatus({ text: `Updating ${routeId}...`, level: "info" });
       await request(`/v1/driver-portal/routes/${encodeURIComponent(routeId)}/status`, {
         method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: JSON.stringify({
-          username,
-          password,
+          username: token ? undefined : username,
+          password: token ? undefined : password,
           status: routeStatus,
         }),
       });
@@ -765,16 +767,18 @@ function App() {
     try {
       const username = form.loginUsername || authSession?.username;
       const password = form.loginPassword;
-      if (!username || !password) throw new Error("Current driver credentials are not available. Sign in again.");
+      const token = driverSession?.access_token;
+      if (!token && (!username || !password)) throw new Error("Current driver credentials are not available. Sign in again.");
       const payload = {
-        username,
-        password,
+        username: token ? undefined : username,
+        password: token ? undefined : password,
         capacity: capacity === "" || capacity === undefined || capacity === null ? undefined : Number(capacity),
         new_password: newPassword?.trim() || undefined,
       };
       setStatus({ text: "Updating driver profile...", level: "info" });
       const body = await request("/v1/driver-portal/profile", {
         method: "PUT",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: JSON.stringify(payload),
       });
       setDriverRecords((items) => items.map((driver) => (driver.id === body.id ? body : driver)));
@@ -2248,7 +2252,7 @@ function DriverPortalView({ form, updateForm, drivers, routes, selectedRoute, ac
                     driverId,
                     driverName: driver?.name || driverId,
                     loginUsername: driver?.metadata?.username || "",
-                    loginPassword: driver?.metadata?.temporary_password || "",
+                    loginPassword: "",
                   });
                 }}
                 options={drivers.map((driver) => driver.id)}

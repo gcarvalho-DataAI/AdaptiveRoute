@@ -131,7 +131,8 @@ uv run pytest
 The implementation is intentionally pragmatic. Known trade-offs:
 
 - authentication is simplified for PoC usage;
-- driver tokens are mock tokens;
+- admin authentication is still frontend-only for demo usage;
+- driver JWT is issued and accepted by driver-scoped status/profile endpoints, with compatibility credential payloads still enabled;
 - local LLM serving is external to the main Compose stack by default;
 - frontend is currently a single React entry file rather than a fully decomposed component tree;
 - route progress is simulated/coarse because HiGHS does not expose reliable granular optimization progress through this integration;
@@ -142,13 +143,14 @@ The implementation is intentionally pragmatic. Known trade-offs:
 Before production usage, the following should be implemented:
 
 - real authentication and authorization;
-- password hashing and credential rotation;
+- backend admin authentication and authorization;
+- bearer-token enforcement on protected endpoints;
+- credential rotation;
 - durable background worker queue;
 - stronger job cancellation semantics;
-- API pagination/filtering at the backend;
-- stricter observability: structured logs, metrics and tracing;
+- backend filtering and cursor pagination for high-volume collections;
+- stricter observability: metrics and tracing correlated by domain identifiers;
 - componentized frontend architecture;
 - larger-cardinality model training;
 - model-serving lifecycle management;
 - formal integration tests against the Docker stack.
-

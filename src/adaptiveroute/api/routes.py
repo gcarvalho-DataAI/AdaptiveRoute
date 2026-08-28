@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import jwt
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from adaptiveroute.api.schemas import (
     AgentRunResponse,
@@ -46,6 +48,8 @@ from adaptiveroute.api.dependencies import (
     get_rag_service,
     get_scenario_service,
 )
+from adaptiveroute.api.security import create_access_token, decode_access_token
+from adaptiveroute.api.settings import get_api_settings
 from adaptiveroute.domain.serialization import scenario_from_dict, scenario_to_dict
 from adaptiveroute.drivers import DriverService, driver_to_dict
 from adaptiveroute.memory.service import ConversationService
@@ -57,6 +61,11 @@ from adaptiveroute.rag.service import RagService
 from adaptiveroute.scenarios.service import ScenarioService
 
 router = APIRouter()
+driver_bearer = HTTPBearer(auto_error=False)
+
+
+def _paginate(items: list, *, skip: int, limit: int) -> list:
+    return items[skip : skip + limit]
 
 
 @router.get("/health")
@@ -79,8 +88,12 @@ def create_conversation(
 
 
 @router.get("/v1/conversations", response_model=list[ConversationResponse])
-def list_conversations(service: ConversationService = Depends(get_conversation_service)) -> list[dict]:
-    return [asdict(conversation) for conversation in service.list_conversations()]
+def list_conversations(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    service: ConversationService = Depends(get_conversation_service),
+) -> list[dict]:
+    return _paginate([asdict(conversation) for conversation in service.list_conversations()], skip=skip, limit=limit)
 
 
 @router.get("/v1/conversations/{conversation_id}", response_model=ConversationResponse)
@@ -108,10 +121,12 @@ def delete_conversation(
 @router.get("/v1/conversations/{conversation_id}/messages", response_model=list[MessageResponse])
 def list_messages(
     conversation_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     service: ConversationService = Depends(get_conversation_service),
 ) -> list[dict]:
     try:
-        return [asdict(message) for message in service.list_messages(conversation_id)]
+        return _paginate([asdict(message) for message in service.list_messages(conversation_id)], skip=skip, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -119,12 +134,14 @@ def list_messages(
 @router.get("/v1/conversations/{conversation_id}/agent-runs", response_model=list[AgentRunResponse])
 def list_agent_runs(
     conversation_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     service: ConversationService = Depends(get_conversation_service),
 ) -> list[dict]:
     try:
         if service.get_conversation(conversation_id) is None:
             raise ValueError(f"Conversation not found: {conversation_id}")
-        return [asdict(run) for run in service.list_agent_runs(conversation_id)]
+        return _paginate([asdict(run) for run in service.list_agent_runs(conversation_id)], skip=skip, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -182,8 +199,12 @@ def seed_demo_scenario(service: ScenarioService = Depends(get_scenario_service))
 
 
 @router.get("/v1/scenarios", response_model=list[ScenarioResponse])
-def list_scenarios(service: ScenarioService = Depends(get_scenario_service)) -> list[dict]:
-    return [scenario_to_dict(scenario) for scenario in service.list_scenarios()]
+def list_scenarios(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    service: ScenarioService = Depends(get_scenario_service),
+) -> list[dict]:
+    return _paginate([scenario_to_dict(scenario) for scenario in service.list_scenarios()], skip=skip, limit=limit)
 
 
 @router.get("/v1/scenarios/{scenario_id}", response_model=ScenarioResponse)
@@ -321,8 +342,12 @@ def create_operational_route(
 
 
 @router.get("/v1/operational-routes", response_model=list[OperationalRouteResponse])
-def list_operational_routes(service: OperationalRouteService = Depends(get_operational_route_service)) -> list[dict]:
-    return [route_to_dict(route) for route in service.list_routes()]
+def list_operational_routes(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    service: OperationalRouteService = Depends(get_operational_route_service),
+) -> list[dict]:
+    return _paginate([route_to_dict(route) for route in service.list_routes()], skip=skip, limit=limit)
 
 
 @router.get("/v1/operational-routes/{route_id}", response_model=OperationalRouteResponse)
@@ -360,8 +385,12 @@ def create_driver(
 
 
 @router.get("/v1/drivers", response_model=list[DriverResponse])
-def list_drivers(service: DriverService = Depends(get_driver_service)) -> list[dict]:
-    return [driver_to_dict(driver) for driver in service.list_drivers()]
+def list_drivers(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    service: DriverService = Depends(get_driver_service),
+) -> list[dict]:
+    return _paginate([driver_to_dict(driver) for driver in service.list_drivers()], skip=skip, limit=limit)
 
 
 @router.get("/v1/drivers/{driver_id}", response_model=DriverResponse)
@@ -424,10 +453,17 @@ def driver_portal_login(
     if driver is None:
         raise HTTPException(status_code=401, detail="Invalid driver credentials.")
     routes = route_service.list_routes_by_driver(driver.id)
+    settings = get_api_settings()
     return {
         "driver": driver_to_dict(driver),
         "routes": [route_to_dict(route) for route in routes],
-        "access_token": f"mock-driver-token:{driver.id}",
+        "access_token": create_access_token(
+            subject=driver.id,
+            role="driver",
+            secret_key=settings.jwt_secret_key,
+            expires_minutes=settings.jwt_expires_minutes,
+            extra_claims={"username": driver.metadata.get("username")},
+        ),
     }
 
 
@@ -435,12 +471,11 @@ def driver_portal_login(
 def driver_update_own_route_status(
     route_id: str,
     payload: DriverRouteStatusRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(driver_bearer),
     driver_service: DriverService = Depends(get_driver_service),
     route_service: OperationalRouteService = Depends(get_operational_route_service),
 ) -> dict:
-    driver = driver_service.authenticate(username=payload.username, password=payload.password)
-    if driver is None:
-        raise HTTPException(status_code=401, detail="Invalid driver credentials.")
+    driver = _authenticate_driver(payload, credentials, driver_service)
     route = route_service.get_route(route_id)
     if route is None:
         raise HTTPException(status_code=404, detail="Operational route not found.")
@@ -455,11 +490,10 @@ def driver_update_own_route_status(
 @router.put("/v1/driver-portal/profile", response_model=DriverResponse)
 def driver_update_own_profile(
     payload: DriverProfileUpdateRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(driver_bearer),
     driver_service: DriverService = Depends(get_driver_service),
 ) -> dict:
-    driver = driver_service.authenticate(username=payload.username, password=payload.password)
-    if driver is None:
-        raise HTTPException(status_code=401, detail="Invalid driver credentials.")
+    driver = _authenticate_driver(payload, credentials, driver_service)
     metadata = dict(driver.metadata or {})
     if payload.new_password:
         if len(payload.new_password) < 8:
@@ -480,6 +514,32 @@ def driver_update_own_profile(
         metadata=metadata,
     )
     return driver_to_dict(updated)
+
+
+def _authenticate_driver(
+    payload: DriverRouteStatusRequest | DriverProfileUpdateRequest,
+    credentials: HTTPAuthorizationCredentials | None,
+    driver_service: DriverService,
+):
+    if credentials:
+        settings = get_api_settings()
+        try:
+            claims = decode_access_token(credentials.credentials, secret_key=settings.jwt_secret_key)
+        except jwt.PyJWTError as exc:
+            raise HTTPException(status_code=401, detail="Invalid driver token.") from exc
+        if claims.get("role") != "driver" or not claims.get("sub"):
+            raise HTTPException(status_code=403, detail="Invalid driver role.")
+        driver = driver_service.get_driver(str(claims["sub"]))
+        if driver is None:
+            raise HTTPException(status_code=401, detail="Driver no longer exists.")
+        return driver
+
+    if not payload.username or not payload.password:
+        raise HTTPException(status_code=401, detail="Driver credentials are required.")
+    driver = driver_service.authenticate(username=payload.username, password=payload.password)
+    if driver is None:
+        raise HTTPException(status_code=401, detail="Invalid driver credentials.")
+    return driver
 
 
 @router.post("/v1/planning/daily", response_model=DailyPlanningResponse)
@@ -515,8 +575,12 @@ def start_planning_job(
 
 
 @router.get("/v1/planning/jobs", response_model=list[PlanningJobResponse])
-def list_planning_jobs(service: PlanningJobService = Depends(get_planning_job_service)) -> list[dict]:
-    return [planning_job_to_dict(job) for job in service.list_jobs()]
+def list_planning_jobs(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    service: PlanningJobService = Depends(get_planning_job_service),
+) -> list[dict]:
+    return _paginate([planning_job_to_dict(job) for job in service.list_jobs()], skip=skip, limit=limit)
 
 
 @router.get("/v1/planning/jobs/{job_id}", response_model=PlanningJobResponse)

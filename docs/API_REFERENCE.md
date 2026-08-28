@@ -8,6 +8,14 @@ http://127.0.0.1:8090
 
 All JSON endpoints use `Content-Type: application/json`, except file upload.
 
+List endpoints accept optional pagination query parameters:
+
+```text
+?skip=0&limit=100
+```
+
+`limit` is bounded to 1-500.
+
 ## Health
 
 ### `GET /health`
@@ -245,6 +253,17 @@ Authenticate a driver and return assigned routes.
 
 Update status of the authenticated driver's own route.
 
+Preferred authentication is Bearer token:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8090/v1/driver-portal/routes/ROUTE-002/status \
+  -H "Authorization: Bearer $DRIVER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"in_progress"}'
+```
+
+Compatibility payload:
+
 ```json
 {
   "username": "sofia.ramirez",
@@ -256,6 +275,17 @@ Update status of the authenticated driver's own route.
 ### `PUT /v1/driver-portal/profile`
 
 Update authenticated driver's password and capacity.
+
+Preferred authentication is Bearer token:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:8090/v1/driver-portal/profile \
+  -H "Authorization: Bearer $DRIVER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"new_password":"new-demo-pass","capacity":22}'
+```
+
+Compatibility payload:
 
 ```json
 {
@@ -350,4 +380,3 @@ Build route geometry for frontend visualization.
   "overview": "full"
 }
 ```
-
