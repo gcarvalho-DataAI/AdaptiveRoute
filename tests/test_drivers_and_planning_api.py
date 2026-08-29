@@ -42,6 +42,61 @@ def test_driver_crud_and_daily_planning(monkeypatch) -> None:
     clear_dependency_caches()
 
 
+def test_demo_planning_releases_demo_drivers_from_previous_runs(monkeypatch) -> None:
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    clear_dependency_caches()
+    client = TestClient(create_app())
+
+    first_response = client.post(
+        "/v1/planning/daily",
+        json={"scenario_id": "demo-cvrp-8", "route_prefix": "FIRST-DEMO-ROUTE", "include_demo_drivers": True},
+    )
+    assert first_response.status_code == 200
+
+    for driver in client.get("/v1/drivers").json():
+        update_response = client.put(
+            f"/v1/drivers/{driver['id']}",
+            json={
+                "name": driver["name"],
+                "vehicle_id": driver["vehicle_id"],
+                "capacity": driver["capacity"],
+                "status": "on_route",
+                "region": driver["region"],
+                "shift_start": driver["shift_start"],
+                "shift_end": driver["shift_end"],
+                "metadata": driver["metadata"],
+            },
+        )
+        assert update_response.status_code == 200
+
+    second_response = client.post(
+        "/v1/planning/daily",
+        json={"scenario_id": "demo-cvrp-8", "route_prefix": "SECOND-DEMO-ROUTE", "include_demo_drivers": True},
+    )
+    assert second_response.status_code == 200
+    assert second_response.json()["created_route_count"] == 2
+
+    clear_dependency_caches()
+
+
+def test_async_planning_job_requires_persistent_repository(monkeypatch) -> None:
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    clear_dependency_caches()
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/planning/jobs",
+        json={"scenario_id": "demo-cvrp-8", "route_prefix": "TEST-ROUTE", "include_demo_drivers": False},
+    )
+
+    assert response.status_code == 400
+    assert "ADAPTIVEROUTE_MEMORY_BACKEND=mongo" in response.json()["detail"]
+
+    clear_dependency_caches()
+
+
 def test_list_endpoints_support_pagination(monkeypatch) -> None:
     monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
     monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")

@@ -9,6 +9,19 @@ from adaptiveroute.planning.jobs import utc_now
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        print(
+            "AdaptiveRoute planning worker is an internal process.\n"
+            "Do not run src/adaptiveroute/planning/worker.py directly from VS Code.\n"
+            "Use the VS Code launch configuration 'AdaptiveRoute: Local Full Stack (requires host npm)' "
+            "or start a planning job from the UI/API.\n\n"
+            "Manual worker usage requires:\n"
+            "  uv run python -m adaptiveroute.planning.worker "
+            "--job-id <existing-job-id> --scenario-id <existing-scenario-id>"
+        )
+        return 0
+
     parser = argparse.ArgumentParser(description="Run an AdaptiveRoute planning job.")
     parser.add_argument("--job-id", required=True)
     parser.add_argument("--scenario-id", required=True)
@@ -79,4 +92,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

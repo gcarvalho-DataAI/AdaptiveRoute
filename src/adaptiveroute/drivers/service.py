@@ -8,6 +8,18 @@ from adaptiveroute.drivers.repository import DriverRepository
 from adaptiveroute.security import hash_password, verify_password
 
 
+DEMO_DRIVER_IDS = frozenset(
+    {
+        "DRV-MANHATTAN-01",
+        "DRV-MANHATTAN-02",
+        "DRV-BROOKLYN-01",
+        "DRV-QUEENS-01",
+        "DRV-BROOKLYN-02",
+        "DRV-NJ-01",
+    }
+)
+
+
 class DriverService:
     def __init__(self, repository: DriverRepository):
         self._repository = repository
@@ -118,6 +130,15 @@ class DriverService:
 
     def mark_on_route(self, driver_id: str) -> DriverRecord | None:
         return self._repository.update_status(driver_id, "on_route")
+
+    def release_demo_drivers_for_planning(self) -> list[DriverRecord]:
+        released: list[DriverRecord] = []
+        for driver in self.list_drivers():
+            if driver.id in DEMO_DRIVER_IDS and driver.status == "on_route":
+                updated = self._repository.update_status(driver.id, "available")
+                if updated is not None:
+                    released.append(updated)
+        return released
 
     def ensure_demo_drivers(self) -> list[DriverRecord]:
         if self._repository.list_drivers():

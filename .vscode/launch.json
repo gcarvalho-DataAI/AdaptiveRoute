@@ -10,6 +10,7 @@
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
+      "preLaunchTask": "local: free api port",
       "justMyCode": true
     },
     {
@@ -57,7 +58,7 @@
       "name": "Frontend: Local Dev Server (requires host npm)",
       "type": "node-terminal",
       "request": "launch",
-      "command": "if [ -f frontend/package.json ]; then cd frontend && npm run dev; else echo 'No frontend/package.json found in this workspace.'; read -p 'Press Enter to close...'; fi",
+      "command": "if curl -fsS http://127.0.0.1:5173 >/dev/null 2>&1; then echo 'Frontend already running at http://127.0.0.1:5173'; else if [ -f frontend/package.json ]; then cd frontend && npm run dev -- --host 127.0.0.1 --port 5173; else echo 'No frontend/package.json found in this workspace.'; read -p 'Press Enter to close...'; fi; fi",
       "cwd": "${workspaceFolder}"
     },
     {
@@ -68,10 +69,10 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "OSRM: Start Routing Profile",
+      "name": "AdaptiveRoute: Start Local Services",
       "type": "node-terminal",
       "request": "launch",
-      "command": "./scripts/prepare_osrm_nyc.sh && ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing up -d --build",
+      "command": "./scripts/prepare_osrm_nyc.sh && ./scripts/docker_compose_cmd.sh --profile routing up -d mongo postgres osrm",
       "cwd": "${workspaceFolder}"
     },
     {
@@ -97,7 +98,7 @@
     },
     {
       "name": "AdaptiveRoute: Local Full Stack (requires host npm)",
-      "configurations": ["LLM Backend: Local API", "AdaptiveRoute: Agentic API", "Frontend: Local Dev Server (requires host npm)"],
+      "configurations": ["AdaptiveRoute: Start Local Services", "LLM Backend: Local API", "AdaptiveRoute: Agentic API", "Frontend: Local Dev Server (requires host npm)"],
       "stopAll": true
     },
     {

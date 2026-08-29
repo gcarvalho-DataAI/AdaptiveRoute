@@ -91,6 +91,11 @@ class PlanningJobService:
         self._repository = repository
 
     def create_job(self, *, scenario_id: str, route_prefix: str, include_demo_drivers: bool = True) -> PlanningJobRecord:
+        if isinstance(self._repository, InMemoryPlanningJobRepository):
+            raise ValueError(
+                "Async planning jobs require a shared persistent repository. "
+                "Set ADAPTIVEROUTE_MEMORY_BACKEND=mongo before using Run solver from the UI."
+            )
         job = PlanningJobRecord(
             id=f"plan-{uuid4().hex[:12]}",
             scenario_id=scenario_id,

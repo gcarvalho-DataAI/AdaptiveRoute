@@ -29,6 +29,15 @@
       "problemMatcher": []
     },
     {
+      "label": "local: free api port",
+      "type": "shell",
+      "command": "./scripts/docker_compose_cmd.sh stop api >/dev/null 2>&1 || true; if ss -ltnp '( sport = :8090 )' | rg -q ':8090'; then echo 'Port 8090 is already in use. Stop the existing API process or container before launching AdaptiveRoute: Agentic API.' >&2; ss -ltnp '( sport = :8090 )' >&2; exit 1; fi",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "tests: pytest",
       "type": "shell",
       "command": "uv run pytest",
@@ -50,7 +59,7 @@
     {
       "label": "osrm: start routing profile",
       "type": "shell",
-      "command": "./scripts/prepare_osrm_nyc.sh && ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing up -d --build",
+      "command": "./scripts/prepare_osrm_nyc.sh && ./scripts/docker_compose_cmd.sh --profile routing up -d osrm",
       "options": {
         "cwd": "${workspaceFolder}"
       },
