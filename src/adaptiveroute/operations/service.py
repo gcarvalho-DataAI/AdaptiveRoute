@@ -115,7 +115,20 @@ def extract_route_id(text: str) -> str | None:
 
 
 def route_to_dict(route: OperationalRouteRecord) -> dict[str, Any]:
-    return asdict(route)
+    return _redact_sensitive_route_payload(asdict(route))
+
+
+def _redact_sensitive_route_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"password_hash", "temporary_password", "password"}:
+                continue
+            redacted[key] = _redact_sensitive_route_payload(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive_route_payload(item) for item in value]
+    return value
 
 
 def _filter_plan_for_operational_route(plan: dict[str, Any], *, route_id: str, metadata: dict[str, Any]) -> dict[str, Any]:

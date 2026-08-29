@@ -120,10 +120,11 @@ class PlanningJobService:
         )
 
     def get_job(self, job_id: str) -> PlanningJobRecord | None:
-        return self._repository.get_job(job_id)
+        job = self._repository.get_job(job_id)
+        return self._reconcile_job(job) if job else None
 
     def list_jobs(self) -> list[PlanningJobRecord]:
-        return self._repository.list_jobs()
+        return [self._reconcile_job(job) for job in self._repository.list_jobs()]
 
     def cancel_job(self, job_id: str) -> PlanningJobRecord | None:
         job = self._repository.get_job(job_id)
@@ -156,9 +157,39 @@ class PlanningJobService:
             self.cancel_job(job_id)
         return self._repository.delete_job(job_id)
 
+    def _reconcile_job(self, job: PlanningJobRecord) -> PlanningJobRecord:
+        if job.status != "running" or not job.pid:
+            return job
+        if _process_exists(job.pid):
+            return job
+        if job.completed_at:
+            return job
+        return self._repository.save_job(
+            replace(
+                job,
+                status="failed",
+                stage="failed",
+                progress=max(job.progress, 1),
+                message="Optimization worker exited before completing the job.",
+                error=job.error or "Worker process is no longer running.",
+                updated_at=utc_now(),
+                completed_at=utc_now(),
+            )
+        )
+
 
 def planning_job_to_dict(job: PlanningJobRecord) -> dict[str, Any]:
     return asdict(job)
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _to_document(job: PlanningJobRecord) -> dict[str, Any]:

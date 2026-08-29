@@ -48,6 +48,33 @@
       "problemMatcher": []
     },
     {
+      "label": "osrm: start routing profile",
+      "type": "shell",
+      "command": "./scripts/prepare_osrm_nyc.sh && ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing up -d --build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "osrm: stop routing profile",
+      "type": "shell",
+      "command": "ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing down",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "osrm: logs",
+      "type": "shell",
+      "command": "./scripts/docker_compose_cmd.sh logs -f osrm",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "docker: logs",
       "type": "shell",
       "command": "./scripts/docker_compose_cmd.sh logs -f api frontend mongo postgres",

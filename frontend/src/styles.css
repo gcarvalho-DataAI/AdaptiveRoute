@@ -567,6 +567,85 @@ button {
   gap: 22px;
 }
 
+.dashboard-scenario-list {
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-selector-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 142px auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.scenario-selector-filters > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.date-filter-input {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 14px;
+}
+
+.clear-date-button {
+  min-height: 40px;
+  padding-inline: 12px;
+}
+
+.dashboard-scenario-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid rgba(126, 149, 178, 0.13);
+  border-radius: 18px;
+  color: var(--text);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.dashboard-scenario-card:hover,
+.dashboard-scenario-card.selected {
+  border-color: rgba(80, 166, 255, 0.38);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(86, 214, 160, 0.10), transparent 38%),
+    rgba(80, 166, 255, 0.08);
+}
+
+.dashboard-scenario-card div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dashboard-scenario-card strong,
+.dashboard-scenario-card span,
+.dashboard-scenario-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-scenario-card span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.dashboard-scenario-card small {
+  color: var(--faint);
+  font-size: 0.76rem;
+}
+
 .chat-layout,
 .management-layout {
   grid-template-columns: minmax(0, 1fr) minmax(470px, 0.92fr);
@@ -1347,6 +1426,25 @@ button {
   border-radius: 999px;
 }
 
+.map-recenter-button {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 500;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(120, 186, 255, 0.24);
+  border-radius: 14px;
+  color: var(--text);
+  background: rgba(4, 11, 21, 0.84);
+  backdrop-filter: blur(10px);
+}
+
+.map-recenter-button:hover {
+  border-color: rgba(80, 166, 255, 0.42);
+  background: rgba(80, 166, 255, 0.14);
+}
+
 .legend-depot {
   background: var(--green);
 }
@@ -1941,7 +2039,7 @@ button {
 
 .scenario-flow {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -2079,6 +2177,15 @@ button {
 
 .source-choice-card svg {
   color: var(--green);
+}
+
+.source-choice-card.integration-primary {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  margin-bottom: 14px;
+  background:
+    radial-gradient(circle at 92% 12%, rgba(86, 214, 160, 0.15), transparent 42%),
+    rgba(80, 166, 255, 0.06);
 }
 
 .source-choice-card span,

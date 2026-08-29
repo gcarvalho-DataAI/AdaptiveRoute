@@ -5,7 +5,7 @@ from typing import Any
 
 from adaptiveroute.drivers.models import DriverRecord, utc_now
 from adaptiveroute.drivers.repository import DriverRepository
-from adaptiveroute.api.security import hash_password, verify_password
+from adaptiveroute.security import hash_password, verify_password
 
 
 class DriverService:

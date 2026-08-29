@@ -24,6 +24,17 @@ AdaptiveRoute is a small routing replanning engine for last-mile logistics. The 
 uv sync
 ```
 
+## Start OSRM Routing Profile
+
+If you want road-distance routing and route geometry via OSRM, use the VS Code task named `osrm: start routing profile` or run:
+
+```bash
+./scripts/prepare_osrm_nyc.sh
+ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing up -d --build
+```
+
+This starts the routing profile defined in the Docker Compose stack and prepares the NYC OSRM graph before booting the service.
+
 ## Run The Demo
 
 ```bash

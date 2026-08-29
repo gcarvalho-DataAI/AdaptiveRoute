@@ -60,6 +60,8 @@ Prepare NYC data:
 ./scripts/prepare_osrm_nyc.sh
 ```
 
+From VS Code, you can also use the task `osrm: start routing profile` from the task palette. It runs the same preparation and starts the routing profile automatically.
+
 Start with the routing profile:
 
 ```bash

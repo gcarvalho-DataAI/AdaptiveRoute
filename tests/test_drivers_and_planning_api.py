@@ -73,6 +73,41 @@ def test_list_endpoints_support_pagination(monkeypatch) -> None:
     clear_dependency_caches()
 
 
+def test_operational_route_response_redacts_driver_password_snapshots(monkeypatch) -> None:
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    clear_dependency_caches()
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/operational-routes",
+        json={
+            "id": "ROUTE-REDACTION-001",
+            "driver_id": "DRIVER-REDACTION-001",
+            "scenario_id": "demo-cvrp-8",
+            "metadata": {
+                "driver": {
+                    "id": "DRIVER-REDACTION-001",
+                    "metadata": {
+                        "username": "redaction-driver",
+                        "temporary_password": "secret",
+                        "password_hash": "$2b$hash",
+                    },
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    nested_metadata = payload["metadata"]["driver"]["metadata"]
+    assert nested_metadata == {"username": "redaction-driver"}
+    assert "temporary_password" not in str(payload)
+    assert "password_hash" not in str(payload)
+
+    clear_dependency_caches()
+
+
 def test_api_logger_emits_info_after_app_start(monkeypatch) -> None:
     monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
     monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")

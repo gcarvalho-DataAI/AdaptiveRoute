@@ -66,6 +66,27 @@
       "request": "launch",
       "command": "./scripts/docker_up.sh && for i in $(seq 1 60); do curl -fsS http://127.0.0.1:5173 >/dev/null && break; sleep 1; done; xdg-open http://127.0.0.1:5173",
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "OSRM: Start Routing Profile",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/prepare_osrm_nyc.sh && ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing up -d --build",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "OSRM: Stop Routing Profile",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_compose_cmd.sh --profile routing down",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "OSRM: View Logs",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/docker_compose_cmd.sh logs -f osrm",
+      "cwd": "${workspaceFolder}"
     }
   ],
   "compounds": [

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import {
@@ -165,35 +165,53 @@ const DAILY_LOCATION_LOOKUP = DAILY_ORDER_LOCATIONS.reduce(
   {},
 );
 
-const DAILY_ORDERS_SCENARIO = {
-  id: "daily-nyc-manifest-36",
-  depot: {
-    address: DEMO_LOCATIONS.D0.address,
-    lat: DEMO_LOCATIONS.D0.lat,
-    lng: DEMO_LOCATIONS.D0.lng,
-  },
-  orders: DAILY_ORDER_LOCATIONS.map(([label, address, lat, lng], index) => ({
-      id: `ORDER-${String(index + 1).padStart(3, "0")}`,
-      pickup: {
-        address: DEMO_LOCATIONS.D0.address,
-        lat: DEMO_LOCATIONS.D0.lat,
-        lng: DEMO_LOCATIONS.D0.lng,
-      },
-      delivery: {
-        address,
-        lat,
-        lng,
-      },
-      weight: [2, 3, 2, 4, 1, 3, 2, 2, 4, 3, 1, 2, 3, 2, 1, 3, 2, 4, 2, 3, 2, 1, 3, 2, 4, 3, 2, 1, 3, 2, 2, 3, 1, 2, 4, 2][index],
-      weight_unit: "kg",
-      volume: [0.8, 1.0, 0.7, 1.4, 0.5, 1.1, 0.8, 0.9, 1.3, 1.0, 0.6, 0.7, 1.0, 0.8, 0.5, 1.0, 0.8, 1.2, 0.8, 1.0, 0.7, 0.6, 1.1, 0.8, 1.3, 1.0, 0.8, 0.6, 1.0, 0.7, 0.8, 1.0, 0.6, 0.8, 1.4, 0.7][index],
-      volume_unit: "m3",
-      priority: [2, 1, 1, 3, 1, 2, 1, 2, 2, 1, 3, 1, 2, 2, 1, 1, 2, 3, 2, 1, 1, 2, 2, 1, 3, 1, 2, 1, 2, 2, 1, 1, 2, 2, 3, 1][index],
-      description: `Daily manifest delivery · ${label}`,
-    })),
-  vehicle_count: 6,
-  vehicle_capacity: 24,
-};
+const DAILY_ORDER_WEIGHTS = [2, 3, 2, 4, 1, 3, 2, 2, 4, 3, 1, 2, 3];
+const DAILY_ORDER_VOLUMES = [0.8, 1.0, 0.7, 1.4, 0.5, 1.1, 0.8, 0.9, 1.3, 1.0, 0.6, 0.7, 1.0];
+const DAILY_ORDER_PRIORITIES = [2, 1, 1, 3, 1, 2, 1, 2, 2, 1, 3, 1, 2];
+const DAILY_MANIFEST_MIN_ORDERS = 10;
+const DAILY_MANIFEST_MAX_ORDERS = 13;
+
+function buildDailyOrdersScenario(name = "NYC Morning Dispatch") {
+  const runId = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const randomSuffix = Math.random().toString(36).slice(2, 6);
+  const orderCount = randomInt(DAILY_MANIFEST_MIN_ORDERS, DAILY_MANIFEST_MAX_ORDERS);
+  const scenarioSlug = slugifyScenarioName(name) || "nyc-route-plan";
+  return {
+    id: `${scenarioSlug}-${orderCount}-${runId}-${randomSuffix}`,
+    depot: {
+      address: DEMO_LOCATIONS.D0.address,
+      lat: DEMO_LOCATIONS.D0.lat,
+      lng: DEMO_LOCATIONS.D0.lng,
+    },
+    orders: DAILY_ORDER_LOCATIONS.slice(0, orderCount).map(([label, address, lat, lng], index) => {
+      const demandVariation = randomInt(-1, 1);
+      const weight = Math.max(1, DAILY_ORDER_WEIGHTS[index] + demandVariation);
+      const volume = Math.max(0.4, Number((DAILY_ORDER_VOLUMES[index] + randomInt(-1, 1) * 0.1).toFixed(1)));
+      const priority = clamp(DAILY_ORDER_PRIORITIES[index] + randomInt(-1, 1), 1, 3);
+      return {
+        id: `ORDER-${runId}-${String(index + 1).padStart(3, "0")}`,
+        pickup: {
+          address: DEMO_LOCATIONS.D0.address,
+          lat: DEMO_LOCATIONS.D0.lat,
+          lng: DEMO_LOCATIONS.D0.lng,
+        },
+        delivery: {
+          address,
+          lat,
+          lng,
+        },
+        weight,
+        weight_unit: "kg",
+        volume,
+        volume_unit: "m3",
+        priority,
+        description: `Operational manifest delivery · ${label}`,
+      };
+    }),
+    vehicle_count: 6,
+    vehicle_capacity: 24,
+  };
+}
 
 function App() {
   const [activeView, setActiveView] = useState("dashboard");
@@ -207,6 +225,7 @@ function App() {
   const [driverRecords, setDriverRecords] = useState([]);
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [selectedRouteIds, setSelectedRouteIds] = useState(null);
+  const [dashboardScenarioId, setDashboardScenarioId] = useState(null);
   const [selectedScenario, setSelectedScenario] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [conversationId, setConversationId] = useState(null);
@@ -238,13 +257,30 @@ function App() {
 
   const api = useMemo(() => apiBaseUrl.replace(/\/$/, ""), [apiBaseUrl]);
   const currentPlan = selectedRoute?.current_plan ?? extractGeneratedPlan(agenticResult) ?? null;
+  const dashboardScenarioOptions = useMemo(() => buildDashboardScenarioOptions(routes, scenarios), [routes, scenarios]);
+  const activeDashboardScenarioId = useMemo(
+    () => resolveDashboardScenarioId(dashboardScenarioId, dashboardScenarioOptions),
+    [dashboardScenarioId, dashboardScenarioOptions],
+  );
+  const dashboardRoutes = useMemo(
+    () => (activeDashboardScenarioId ? routes.filter((route) => route.scenario_id === activeDashboardScenarioId) : []),
+    [routes, activeDashboardScenarioId],
+  );
+  const selectedDashboardRouteIds = useMemo(
+    () => (selectedRouteIds === null ? dashboardRoutes.map((route) => route.id) : selectedRouteIds),
+    [selectedRouteIds, dashboardRoutes],
+  );
   const selectedDashboardRoutes = useMemo(
-    () => routes.filter((route) => (selectedRouteIds || []).includes(route.id)),
-    [routes, selectedRouteIds],
+    () => dashboardRoutes.filter((route) => selectedDashboardRouteIds.includes(route.id)),
+    [dashboardRoutes, selectedDashboardRouteIds],
   );
   const scenarioLocations = useMemo(() => buildScenarioLocations(selectedScenario), [selectedScenario]);
   const drivers = useMemo(() => mergeDriversWithRoutes(driverRecords, routes), [driverRecords, routes]);
-  const kpis = useMemo(() => buildKpis(routes), [routes]);
+  const dashboardRouteTotal = useMemo(
+    () => dashboardScenarioOptions.reduce((total, scenario) => total + scenario.routeCount, 0),
+    [dashboardScenarioOptions],
+  );
+  const kpis = useMemo(() => buildKpis(dashboardRoutes, dashboardRouteTotal), [dashboardRoutes, dashboardRouteTotal]);
   const jobsByScenario = useMemo(() => latestJobsByScenario(planningJobs), [planningJobs]);
   const isDriver = authSession?.role === "driver";
   const navItems = isDriver ? DRIVER_NAV_ITEMS : NAV_ITEMS;
@@ -269,7 +305,7 @@ function App() {
   }, [authSession?.role, activeView]);
 
   useEffect(() => {
-    const hasRunningJob = planningJobs.some((job) => ["queued", "running"].includes(job.status));
+    const hasRunningJob = planningJobs.some((job) => isRunningJob(job));
     if (!hasRunningJob) return undefined;
     const timer = window.setInterval(() => {
       setNow(Date.now());
@@ -279,7 +315,7 @@ function App() {
   }, [planningJobs]);
 
   useEffect(() => {
-    const hasRunningJob = planningJobs.some((job) => ["queued", "running"].includes(job.status));
+    const hasRunningJob = planningJobs.some((job) => isRunningJob(job));
     if (!hasRunningJob) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -304,6 +340,13 @@ function App() {
       loadScenario(assignedRoute.scenario_id, { silent: true }).catch(() => undefined);
     }
   }, [authSession?.role, authSession?.driverId, routes.length, selectedRoute?.id, selectedScenario?.id]);
+
+  useEffect(() => {
+    if (authSession?.role !== "admin" || !activeDashboardScenarioId) return;
+    if (selectedScenario?.id !== activeDashboardScenarioId) {
+      loadScenario(activeDashboardScenarioId, { silent: true }).catch(() => undefined);
+    }
+  }, [authSession?.role, activeDashboardScenarioId, selectedScenario?.id]);
 
   async function request(path, options = {}) {
     const response = await fetch(`${api}${path}`, {
@@ -340,12 +383,26 @@ function App() {
   function toggleDashboardRoute(route) {
     selectRoute(route);
     setSelectedRouteIds((value) => {
-      const currentIds = Array.isArray(value) ? value : routes.map((item) => item.id);
+      const scenarioRouteIds = dashboardRoutes.map((item) => item.id);
+      const currentIds = Array.isArray(value) ? value : scenarioRouteIds;
       if (currentIds.includes(route.id)) {
         return currentIds.filter((routeId) => routeId !== route.id);
       }
       return [...currentIds, route.id];
     });
+  }
+
+  function selectDashboardScenario(scenarioId) {
+    setDashboardScenarioId(scenarioId || null);
+    setSelectedRouteIds(null);
+    const firstRoute = routes.find((route) => route.scenario_id === scenarioId);
+    if (firstRoute) {
+      selectRoute(firstRoute);
+    } else {
+      setSelectedRoute(null);
+      updateForm({ scenarioId: scenarioId || form.scenarioId });
+      if (scenarioId) loadScenario(scenarioId, { silent: true }).catch(() => undefined);
+    }
   }
 
   async function login({ username, password }) {
@@ -431,29 +488,34 @@ function App() {
     }
   }
 
-  async function importDailyOrdersFeed() {
+  async function importDailyOrdersFeed(scenarioName) {
     try {
+      const scenarioPayload = buildDailyOrdersScenario(scenarioName);
       setStatus({ text: "Importing daily orders and calculating road distances...", level: "info" });
       const body = await request("/v1/scenarios/from-orders", {
         method: "POST",
-        body: JSON.stringify(DAILY_ORDERS_SCENARIO),
+        body: JSON.stringify(scenarioPayload),
       });
       updateForm({ scenarioId: body.id });
       setSelectedScenario(withLocationMetadata(body));
+      setSelectedRoute(null);
+      setSelectedRouteIds(null);
+      setDashboardScenarioId(body.id);
+      setMapGeometry(null);
       await loadScenarios({ silent: true });
-      setStatus({ text: `Daily manifest ready: ${body.id} · ${body.customers?.length || 0} stops`, level: "ok" });
+      setStatus({ text: `${scenarioDisplayName(body)} ready · ${body.customers?.length || 0} stops`, level: "ok" });
     } catch (error) {
       setStatus({ text: `Error: ${error.message}`, level: "error" });
     }
   }
 
-  async function uploadOrdersSpreadsheet(file) {
+  async function uploadOrdersSpreadsheet(file, scenarioName) {
     try {
       if (!file) throw new Error("Select a CSV or XLSX file first.");
       setStatus({ text: "Uploading orders and calculating distance matrix...", level: "info" });
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("scenario_id", form.scenarioId?.trim() || "orders-upload");
+      formData.append("scenario_id", buildUploadedScenarioId(scenarioName || form.scenarioId));
       formData.append("depot_address", DEMO_LOCATIONS.D0.address);
       formData.append("depot_lat", String(DEMO_LOCATIONS.D0.lat));
       formData.append("depot_lng", String(DEMO_LOCATIONS.D0.lng));
@@ -471,6 +533,7 @@ function App() {
       }
       updateForm({ scenarioId: body.id });
       setSelectedScenario(withLocationMetadata(body));
+      setDashboardScenarioId(body.id);
       await loadScenarios({ silent: true });
       setStatus({ text: `Uploaded ${body.customers?.length || 0} orders into ${body.id}.`, level: "ok" });
     } catch (error) {
@@ -607,7 +670,7 @@ function App() {
       if (!body.length) setSelectedRoute(null);
       setSelectedRouteIds((value) => {
         const availableIds = new Set(body.map((route) => route.id));
-        if (value === null) return body.map((route) => route.id);
+        if (value === null) return null;
         return value.filter((routeId) => availableIds.has(routeId));
       });
       if (!options.silent) setStatus({ text: `Synced ${body.length} route(s).`, level: "ok" });
@@ -669,6 +732,7 @@ function App() {
         }),
       });
       setPlanningJobs((jobs) => [body, ...jobs.filter((job) => job.id !== body.id)]);
+      setDashboardScenarioId(scenarioId);
       updateForm({ scenarioId });
       setStatus({ text: `Optimization job started: ${body.id}`, level: "ok" });
     } catch (error) {
@@ -1103,10 +1167,13 @@ function App() {
         {!isDriver && activeView === "dashboard" && (
           <DashboardView
             kpis={kpis}
-            routes={routes}
+            routes={dashboardRoutes}
+            scenarioOptions={dashboardScenarioOptions}
+            activeScenarioId={activeDashboardScenarioId}
+            selectDashboardScenario={selectDashboardScenario}
             selectedRoute={selectedRoute}
             selectedRoutes={selectedDashboardRoutes}
-            selectedRouteIds={selectedRouteIds}
+            selectedRouteIds={selectedDashboardRouteIds}
             setActiveView={setActiveView}
             toggleRouteSelection={toggleDashboardRoute}
             currentPlan={currentPlan}
@@ -1254,7 +1321,7 @@ function Topbar({ activeView }) {
   const subtitle = {
     dashboard: "Upload or seed demand, run the traditional solver, then monitor today’s assigned routes.",
     chat: "Talk to the route agent when a driver reports blocks, delays or delivery constraints.",
-    scenarios: "Create, inspect and manage operational routing scenarios.",
+    scenarios: "",
     drivers: "Create driver logins and vehicle capacity records. Route assignment is handled by the solver.",
     driverPortal: "Driver login with visibility and updates limited to assigned routes.",
     driverWorkspace: "Review your route, monitor metrics and talk to the route agent.",
@@ -1267,7 +1334,7 @@ function Topbar({ activeView }) {
       <div>
         <span className="eyebrow">AdaptiveRoute · {activeView}</span>
         <h1>{title}</h1>
-        <p>{subtitle}</p>
+        {subtitle && <p>{subtitle}</p>}
       </div>
     </header>
   );
@@ -1276,6 +1343,9 @@ function Topbar({ activeView }) {
 function DashboardView({
   kpis,
   routes,
+  scenarioOptions,
+  activeScenarioId,
+  selectDashboardScenario,
   selectedRoute,
   selectedRoutes,
   selectedRouteIds,
@@ -1333,6 +1403,14 @@ function DashboardView({
         </div>
 
         <div className="dashboard-side">
+          <Panel title="Scenario selector" icon={<Layers3 />}>
+            <DashboardScenarioSelector
+              scenarios={scenarioOptions}
+              activeScenarioId={activeScenarioId}
+              onSelect={selectDashboardScenario}
+            />
+          </Panel>
+
           <Panel title="Driver route selector" subtitle={`${routes.length} route records · select one or more to inspect`} icon={<Navigation />}>
             <FleetBoard
               routes={routes}
@@ -1533,10 +1611,12 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
   const [ordersFile, setOrdersFile] = useState(null);
+  const [scenarioName, setScenarioName] = useState("NYC Morning Dispatch");
   const scenarioPager = usePagedSearch(
     scenarios,
     (scenario) => [
       scenario.id,
+      scenarioDisplayName(scenario),
       `${scenario.customers?.length || 0} stops`,
       `${scenario.vehicles?.length || 0} vehicles`,
       jobsByScenario[scenario.id]?.status,
@@ -1547,13 +1627,13 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
   const selectedVehicleCount = selectedScenario?.vehicles?.length || 0;
 
   async function importFeedAndAdvance() {
-    await actions.importDailyOrdersFeed();
-    setWizardStep(3);
+    await actions.importDailyOrdersFeed(scenarioName);
+    setWizardStep(2);
   }
 
   async function uploadAndAdvance() {
-    await actions.uploadOrdersSpreadsheet(ordersFile);
-    setWizardStep(3);
+    await actions.uploadOrdersSpreadsheet(ordersFile, scenarioName);
+    setWizardStep(2);
   }
 
   return (
@@ -1563,7 +1643,6 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
           <div>
             <span className="eyebrow">Scenario operations</span>
             <h2>Planning scenarios</h2>
-            <p>Create demand, optimize routes, monitor solver jobs, or inspect failures with AI support.</p>
           </div>
           <button className="primary create-scenario-button" onClick={() => setWizardOpen((value) => !value)}>
             {wizardOpen ? "Close wizard" : "Create scenario"}
@@ -1574,9 +1653,8 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
           <Panel title="Create scenario" subtitle="Wizard" icon={<UploadCloud />}>
             <div className="scenario-flow">
               {[
-                ["01", "Source", "Integration or spreadsheet"],
-                ["02", "Import", "Build demand and road matrix"],
-                ["03", "Optimize", "Run solver and publish routes"],
+                ["01", "Import orders", "Integration or spreadsheet"],
+                ["02", "Optimize routes", "Run solver and publish routes"],
               ].map(([number, label, detail], index) => (
                 <button
                   type="button"
@@ -1592,22 +1670,22 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
             </div>
 
             {wizardStep === 1 && (
-              <div className="source-choice-grid">
-                <button type="button" className="source-choice-card" onClick={() => setWizardStep(2)}>
-                  <Database size={22} />
-                  <strong>Import from integration</strong>
-                  <span>Load the daily operational order feed and calculate the road-distance matrix.</span>
-                </button>
-                <button type="button" className="source-choice-card" onClick={() => setWizardStep(2)}>
-                  <UploadCloud size={22} />
-                  <strong>Upload spreadsheet</strong>
-                  <span>Use CSV/XLSX with coordinates, demand and priority columns.</span>
-                </button>
-              </div>
-            )}
-
-            {wizardStep === 2 && (
               <div className="upload-card elevated">
+                <Field
+                  label="Scenario name"
+                  value={scenarioName}
+                  onChange={setScenarioName}
+                  placeholder="Example: NYC Morning Dispatch"
+                />
+                <div className="source-choice-card integration-primary">
+                  <Database size={22} />
+                  <div>
+                    <strong>Operational order integration</strong>
+                  </div>
+                  <button className="primary" onClick={importFeedAndAdvance}>
+                    <Database size={16} /> Import orders
+                  </button>
+                </div>
                 <label className="file-drop">
                   <UploadCloud size={24} />
                   <div>
@@ -1621,13 +1699,9 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
                   />
                 </label>
                 <div className="scenario-action-grid">
-                  <button className="primary" onClick={importFeedAndAdvance}>
-                    <Database size={16} /> Import daily orders
-                  </button>
                   <button className="secondary" onClick={uploadAndAdvance}>
                     <UploadCloud size={16} /> Upload spreadsheet
                   </button>
-                  <button className="secondary" onClick={actions.seedDemoScenario}>Seed demo</button>
                 </div>
                 <div className="schema-hint">
                   <strong>Supported columns</strong>
@@ -1636,10 +1710,11 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
               </div>
             )}
 
-            {wizardStep === 3 && (
+            {wizardStep === 2 && (
               <div className="solver-launch-card">
                 <div>
                   <strong>{currentScenarioId}</strong>
+                  <small>{scenarioDisplayName(currentScenarioId)}</small>
                   <span>Ready to start Pyomo + HiGHS optimization. The job will keep running in the backend while the UI polls status.</span>
                 </div>
                 <button className="primary play-button" onClick={() => actions.startPlanningJob(currentScenarioId)}>
@@ -1691,7 +1766,7 @@ function ScenariosView({ scenarios, selectedScenario, jobsByScenario, actions, c
 
       <aside className="scenario-detail">
         <Panel
-          title={selectedScenario?.id || "No scenario selected"}
+          title={selectedScenario ? scenarioDisplayName(selectedScenario) : "No scenario selected"}
           subtitle={`${selectedCustomerCount} stops · ${selectedVehicleCount} vehicles`}
           icon={<Settings2 />}
         >
@@ -1707,7 +1782,8 @@ function ScenarioCard({ scenario, job, now, selected, onClick, onPlay, onCancel,
   const vehicles = scenario.vehicles?.length || 0;
   const blocked = scenario.blocked_arcs?.length || 0;
   const status = job?.status || "ready";
-  const isRunning = ["queued", "running"].includes(status);
+  const isRunning = isRunningJob(job);
+  const displayName = scenarioDisplayName(scenario);
   return (
     <article
       className={`scenario-card ${selected ? "selected" : ""} ${isRunning ? "optimizing" : ""}`}
@@ -1720,9 +1796,10 @@ function ScenarioCard({ scenario, job, now, selected, onClick, onPlay, onCancel,
     >
       <div className="scenario-card-main">
         <div className="scenario-title-row">
-          <strong>{scenario.id}</strong>
+          <strong>{displayName}</strong>
           <span className={`status-pill ${status}`}>{status}</span>
         </div>
+        {displayName !== scenario.id && <small>{scenario.id}</small>}
         <span>{stops} stops · {vehicles} vehicles</span>
         {job && (
           <div className="job-progress">
@@ -2170,7 +2247,7 @@ function buildDriverRouteMetrics(route, plan, driver) {
     {
       label: "Sequence",
       value: stops.length ? stops.join(" → ") : "—",
-      detail: route?.scenario_id,
+      detail: scenarioDisplayName(route?.scenario_id),
     },
   ];
 }
@@ -2227,7 +2304,7 @@ function DriverPortalView({ form, updateForm, drivers, routes, selectedRoute, ac
     : [];
   const routePager = usePagedSearch(
     visibleRoutes,
-    (route) => [route.id, route.status, route.scenario_id, route.current_plan?.routes?.[0]?.stops?.join(" ")].filter(Boolean).join(" "),
+    (route) => [route.id, route.status, route.scenario_id, scenarioDisplayName(route.scenario_id), route.current_plan?.routes?.[0]?.stops?.join(" ")].filter(Boolean).join(" "),
   );
   const routeForChat = selectedRoute && visibleRoutes.some((route) => route.id === selectedRoute.id)
     ? selectedRoute
@@ -2292,6 +2369,7 @@ function DriverPortalView({ form, updateForm, drivers, routes, selectedRoute, ac
                 <div className={`driver-route-card ${routeForChat?.id === route.id ? "selected" : ""}`} key={route.id}>
                   <div>
                     <strong>{route.id}</strong>
+                    <small>{scenarioDisplayName(route.scenario_id)}</small>
                     <span>{route.current_plan?.routes?.[0]?.stops?.join(" → ") || "No plan"}</span>
                   </div>
                   <small>{route.status}</small>
@@ -2362,7 +2440,7 @@ function Panel({ title, subtitle, icon, children, id }) {
     <article className="panel" id={id}>
       <header className="panel-header">
         <div>
-          <span className="panel-subtitle">{subtitle}</span>
+          {subtitle && <span className="panel-subtitle">{subtitle}</span>}
           <h2>{title}</h2>
         </div>
         <div className="panel-icon">{React.cloneElement(icon, { size: 20 })}</div>
@@ -2372,11 +2450,11 @@ function Panel({ title, subtitle, icon, children, id }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text" }) {
+function Field({ label, value, onChange, type = "text", placeholder = "" }) {
   return (
     <label className="field">
       {label}
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -2467,6 +2545,83 @@ function SeedAddressList() {
   );
 }
 
+function DashboardScenarioSelector({ scenarios, activeScenarioId, onSelect }) {
+  const [query, setQuery] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
+  const filteredScenarios = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return scenarios.filter((scenario) => {
+      const timestamp = scenario.createdAt || scenario.updatedAt;
+      const matchesDate = !selectedDate || formatDateInputValue(timestamp) === selectedDate;
+      const haystack = [
+        scenario.id,
+        scenario.name,
+        scenario.displayName,
+        timestamp,
+        formatDateTime(timestamp),
+      ].filter(Boolean).join(" ").toLowerCase();
+      return matchesDate && (!needle || haystack.includes(needle));
+    });
+  }, [scenarios, query, selectedDate]);
+  const scenarioPager = usePagedSearch(filteredScenarios, (scenario) => scenario.id, 10);
+
+  if (!scenarios.length) {
+    return <p className="empty slim">No planned scenarios available yet.</p>;
+  }
+
+  return (
+    <>
+      <div className="scenario-selector-filters">
+        <label className="list-search">
+          <Search size={16} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search scenario name, id or date..."
+          />
+        </label>
+        <input
+          className="date-filter-input"
+          type="date"
+          value={selectedDate}
+          onChange={(event) => setSelectedDate(event.target.value)}
+        />
+        {selectedDate && (
+          <button type="button" className="secondary clear-date-button" onClick={() => setSelectedDate("")}>
+            Clear
+          </button>
+        )}
+        <span>{scenarioPager.filtered.length} of {scenarios.length}</span>
+      </div>
+      <div className="dashboard-scenario-list">
+        {scenarioPager.pageItems.map((scenario) => (
+          <button
+            type="button"
+            key={scenario.id}
+            className={`dashboard-scenario-card ${scenario.id === activeScenarioId ? "selected" : ""}`}
+            onClick={() => onSelect(scenario.id)}
+          >
+            <div>
+              <strong>{scenario.displayName}</strong>
+              <span>{scenario.routeCount} route(s) · {scenario.stopCount || "—"} stops</span>
+              <small>{scenario.id}</small>
+            </div>
+            <small>{formatDateTime(scenario.createdAt || scenario.updatedAt)}</small>
+          </button>
+        ))}
+        {!scenarioPager.filtered.length && <p className="empty slim">No scenarios match this search.</p>}
+      </div>
+      <PaginationControls
+        page={scenarioPager.page}
+        pageCount={scenarioPager.pageCount}
+        total={scenarioPager.filtered.length}
+        pageSize={scenarioPager.pageSize}
+        onPageChange={scenarioPager.setPage}
+      />
+    </>
+  );
+}
+
 function FleetBoard({ routes, selectedRoute, selectedRouteIds = [], onSelect, pageSize = PAGE_SIZE }) {
   const routePager = usePagedSearch(
     routes,
@@ -2476,12 +2631,13 @@ function FleetBoard({ routes, selectedRoute, selectedRouteIds = [], onSelect, pa
       routeDriverDisplayName(route),
       route.status,
       route.scenario_id,
+      scenarioDisplayName(route.scenario_id),
       route.metadata?.solver_vehicle_id,
     ].filter(Boolean).join(" "),
     pageSize,
   );
   if (!routes.length) {
-    return <p className="empty">No operational routes yet. Seed the demo and create ROUTE-001.</p>;
+    return <p className="empty">No route plans available for this dashboard view.</p>;
   }
   return (
     <>
@@ -2511,6 +2667,7 @@ function FleetBoard({ routes, selectedRoute, selectedRouteIds = [], onSelect, pa
               <div className="fleet-card-main">
                 <strong>{route.id}</strong>
                 <small>{routeDriverDisplayName(route)}{vehicle ? ` · ${vehicle}` : ""} · {route.status}</small>
+                <small>{scenarioDisplayName(route.scenario_id)}</small>
                 {sequence && <span className="fleet-card-sequence">{sequence}</span>}
               </div>
               <em>{formatNumber(scopedPlan?.total_distance)}</em>
@@ -2531,13 +2688,16 @@ function FleetBoard({ routes, selectedRoute, selectedRouteIds = [], onSelect, pa
 }
 
 function RouteMap({ plan, route, geometry, locations }) {
+  const [recenterSignal, setRecenterSignal] = useState(0);
   const hasRoutes = Boolean(plan?.routes?.length);
   const routeLines = useMemo(() => normalizeMapGeometry(plan, geometry, locations), [plan, geometry, locations]);
   const points = useMemo(() => collectPlannedPoints(plan, locations), [plan, locations]);
   const blockedLegs = useMemo(() => (hasRoutes ? extractBlockedLegs(route, plan, locations) : []), [hasRoutes, route, plan, locations]);
-  const mapPoints = hasRoutes ? points : collectLocationPoints(locations);
+  const mapPoints = hasRoutes ? points : [];
+  const fitPoints = hasRoutes ? points : collectLocationPoints(locations);
+  const fitKey = buildMapFitKey(plan, fitPoints);
 
-  if (!mapPoints.length) {
+  if (!fitPoints.length) {
     return (
       <div className="map-empty">
         <MapPinned size={42} />
@@ -2554,7 +2714,7 @@ function RouteMap({ plan, route, geometry, locations }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitBounds points={mapPoints} />
+        <FitBounds points={fitPoints} fitKey={fitKey} recenterSignal={recenterSignal} />
         {routeLines.map((line, index) => (
           <Polyline
             key={`${line.vehicleId}-${index}`}
@@ -2600,16 +2760,26 @@ function RouteMap({ plan, route, geometry, locations }) {
         <span><i className="legend-block" /> Block</span>
         <span><i className="legend-route" /> {hasRoutes ? geometry?.source || "mixed" : "Routes hidden"}</span>
       </div>
+      <button type="button" className="map-recenter-button" onClick={() => setRecenterSignal((value) => value + 1)}>
+        <MapPinned size={15} /> Recenter
+      </button>
     </div>
   );
 }
 
-function FitBounds({ points }) {
+function FitBounds({ points, fitKey, recenterSignal }) {
   const map = useMap();
+  const lastFitRef = useRef("");
+  const lastRecenterRef = useRef(-1);
   useEffect(() => {
     if (points.length < 2) return;
+    const shouldFitPlan = fitKey && lastFitRef.current !== fitKey;
+    const shouldRecenter = lastRecenterRef.current !== recenterSignal;
+    if (!shouldFitPlan && !shouldRecenter) return;
     map.fitBounds(points.map((point) => [point.lat, point.lng]), { padding: [30, 30] });
-  }, [map, points]);
+    lastFitRef.current = fitKey;
+    lastRecenterRef.current = recenterSignal;
+  }, [map, points, fitKey, recenterSignal]);
   return null;
 }
 
@@ -2620,7 +2790,7 @@ function PlanSummary({ plan }) {
       <div className="metric-row">
         <span><strong>{plan.routes.length}</strong> vehicles</span>
         <span><strong>{formatNumber(plan.total_distance)}</strong> distance</span>
-        <span><strong>{plan.scenario_id}</strong></span>
+        <span><strong>{scenarioDisplayName(plan.scenario_id)}</strong></span>
       </div>
       {plan.routes.map((route, index) => (
         <div className="plan-route" key={`${route.vehicle_id}-${index}`} style={{ "--route-color": ROUTE_COLORS[index % ROUTE_COLORS.length] }}>
@@ -2883,14 +3053,14 @@ function JsonPanel({ title, value, compact = false }) {
   );
 }
 
-function buildKpis(routes) {
+function buildKpis(routes, totalLoadedRoutes = routes.length) {
   const activeRoutes = routes.filter((item) => ["assigned", "in_progress"].includes(item.status));
   const totalPlan = combinePlansForOperationalRoutes(routes);
   return [
     {
       label: "Routes today",
       value: activeRoutes.length || routes.length || "—",
-      detail: `${routes.length} records loaded`,
+      detail: totalLoadedRoutes === routes.length ? `${routes.length} records loaded` : `${routes.length} today · ${totalLoadedRoutes} total`,
       icon: <Truck size={20} />,
     },
     {
@@ -2900,6 +3070,75 @@ function buildKpis(routes) {
       icon: <Navigation size={20} />,
     },
   ];
+}
+
+function buildDashboardScenarioOptions(routes, scenarios) {
+  const routesByScenario = new Map();
+  for (const route of routes) {
+    if (!route.scenario_id) continue;
+    const current = routesByScenario.get(route.scenario_id) || {
+      routeCount: 0,
+      stopCount: 0,
+      createdAt: route.created_at || route.updated_at || null,
+      updatedAt: route.updated_at || route.created_at || null,
+    };
+    const routeStops = Math.max((filterPlanForOperationalRoute(route.current_plan, route)?.routes?.[0]?.stops?.length || 2) - 2, 0);
+    current.routeCount += 1;
+    current.stopCount += routeStops;
+    current.createdAt = earlierTimestamp(current.createdAt, route.created_at || route.updated_at);
+    current.updatedAt = laterTimestamp(current.updatedAt, route.updated_at || route.created_at);
+    routesByScenario.set(route.scenario_id, current);
+  }
+
+  return scenarios
+    .map((scenario) => {
+      const routeStats = routesByScenario.get(scenario.id) || {};
+      return {
+        id: scenario.id,
+        routeCount: routeStats.routeCount || 0,
+        stopCount: scenario.customers?.length || routeStats.stopCount || 0,
+        createdAt: routeStats.createdAt || routeStats.updatedAt || null,
+        updatedAt: routeStats.updatedAt || routeStats.createdAt || null,
+        displayName: scenarioDisplayName(scenario),
+        scenario,
+      };
+    })
+    .filter((item) => item.routeCount > 0)
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+}
+
+function resolveDashboardScenarioId(requestedId, scenarioOptions) {
+  if (requestedId && scenarioOptions.some((scenario) => scenario.id === requestedId)) return requestedId;
+  const latestToday = scenarioOptions.find((scenario) => isSameLocalDate(scenario.createdAt || scenario.updatedAt, new Date()));
+  return latestToday?.id || null;
+}
+
+function isTodayRoute(route) {
+  const timestamp = route?.created_at || route?.updated_at;
+  return isSameLocalDate(timestamp, new Date());
+}
+
+function isSameLocalDate(timestamp, targetDate) {
+  if (!timestamp) return false;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getFullYear() === targetDate.getFullYear() &&
+    date.getMonth() === targetDate.getMonth() &&
+    date.getDate() === targetDate.getDate()
+  );
+}
+
+function earlierTimestamp(left, right) {
+  if (!left) return right || null;
+  if (!right) return left;
+  return new Date(left) <= new Date(right) ? left : right;
+}
+
+function laterTimestamp(left, right) {
+  if (!left) return right || null;
+  if (!right) return left;
+  return new Date(left) >= new Date(right) ? left : right;
 }
 
 function mergeDriversWithRoutes(driverRecords, routes) {
@@ -2966,6 +3205,10 @@ function latestJobsByScenario(jobs) {
 
 function humanizeStage(stage) {
   return String(stage || "ready").replaceAll("_", " ");
+}
+
+function isRunningJob(job) {
+  return ["queued", "running"].includes(String(job?.status || "").toLowerCase());
 }
 
 function formatElapsed(startedAt, completedAt, now = Date.now()) {
@@ -3039,6 +3282,16 @@ function collectLocationPoints(locations = DEMO_LOCATIONS) {
   return Object.entries(locations || {})
     .map(([id, location]) => ({ id, ...location }))
     .filter((point) => point.lat && point.lng);
+}
+
+function buildMapFitKey(plan, points) {
+  const planKey = (plan?.routes || [])
+    .map((route) => `${route.vehicle_id || ""}:${(route.stops || []).join(">")}`)
+    .join("|");
+  const pointKey = (points || [])
+    .map((point) => `${point.id}:${Number(point.lat).toFixed(5)},${Number(point.lng).toFixed(5)}`)
+    .join("|");
+  return `${plan?.scenario_id || "scenario"}::${planKey || "no-routes"}::${pointKey}`;
 }
 
 function extractBlockedLegs(route, plan, locations = DEMO_LOCATIONS) {
@@ -3177,6 +3430,77 @@ function formatNumber(value) {
   if (value === undefined || value === null || value === "") return "—";
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toFixed(2) : String(value);
+}
+
+function scenarioDisplayName(value) {
+  const id = typeof value === "string" ? value : value?.id;
+  const stopCount = typeof value === "object" && value?.customers?.length ? value.customers.length : null;
+  if (!id) return "No scenario";
+  if (id === "demo-cvrp-8") return "Demo CVRP Scenario";
+  const repeatedBlockMatch = id.match(/^(orders-nyc-demo)(?:-block-[a-z0-9]+-[a-z0-9]+)+$/i);
+  if (repeatedBlockMatch) return "NYC Demo Disruption";
+  const uploadMatch = id.match(/^(.+)-upload-(\d{14})-[a-z0-9]+$/i);
+  if (uploadMatch) return `${titleizeScenarioSlug(uploadMatch[1])} · Uploaded orders`;
+  const namedManifestMatch = id.match(/^(.+)-(\d+)-(\d{14})-[a-z0-9]+$/i);
+  if (namedManifestMatch) return `${titleizeScenarioSlug(namedManifestMatch[1])} · ${namedManifestMatch[2]} orders`;
+  const manifestMatch = id.match(/^nyc-route-plan-(\d+)-/i);
+  if (manifestMatch) return `NYC Route Plan · ${manifestMatch[1]} orders`;
+  const legacyManifestMatch = id.match(/^daily-nyc-manifest-(\d+)-/i);
+  if (legacyManifestMatch) return `NYC Route Plan · ${legacyManifestMatch[1]} orders`;
+  const orderMatch = id.match(/^orders[-_]/i);
+  if (orderMatch) return stopCount ? `Uploaded Orders · ${stopCount} stops` : "Uploaded Orders";
+  return id
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function buildUploadedScenarioId(name) {
+  const runId = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const randomSuffix = Math.random().toString(36).slice(2, 6);
+  const scenarioSlug = slugifyScenarioName(name) || "uploaded-orders";
+  return `${scenarioSlug}-upload-${runId}-${randomSuffix}`;
+}
+
+function slugifyScenarioName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function titleizeScenarioSlug(value) {
+  return String(value || "")
+    .split("-")
+    .filter(Boolean)
+    .map((part) => {
+      if (part.toLowerCase() === "nyc") return "NYC";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}
+
+function formatDateInputValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function escapeRegExp(value) {
