@@ -1,12 +1,17 @@
 # Presentation
 
-Two renderings of the same deck (14 slides), for a mixed technical/stakeholder audience.
+Two renderings of the same deck (17 slides), for a mixed technical/stakeholder audience.
 
 | File | Use |
 | --- | --- |
 | `adaptiveroute_slides.pdf` | Projection and hand-off. Compiled from the `.tex` source. |
 | `adaptiveroute_slides.tex` | Beamer source for the PDF. |
-| `adaptiveroute_deck.html` | Self-contained browser deck. Open directly, no build step. |
+| `adaptiveroute_deck.html` | Browser deck. Open directly, no build step. |
+| `img/` | Product screenshots used by both renderings. |
+
+`img/` holds `admin-dashboard.png` and `route-chat.png` — real captures of the running app,
+referenced by relative path from both the HTML and the `.tex`. Keep the folder next to the deck
+files or both builds lose their images.
 
 ## Rebuilding the PDF
 
@@ -62,9 +67,26 @@ If the frontend palette changes, update the `:root` block in the HTML deck and t
 
 ## Content
 
-Slides 1–4 frame the problem and the design thesis, 5–7 cover architecture and the
-validation contract, 8–10 cover the model and its measured limits, 11–14 cover
-engineering, known limits and next steps.
+| Slides | Arc |
+| --- | --- |
+| 1–4 | Problem, tension, design thesis |
+| 5–8 | Two-model split, architecture, cascade, validation contract |
+| 9–10 | The product, running |
+| 11–13 | Training, results, measured limits |
+| 14–17 | Engineering, known limits, next steps, close |
+
+### The two-model claim
+
+The deck distinguishes two LLMs with separate jobs, mirroring the `.env` split between
+`ADAPTIVEROUTE_ORCHESTRATOR_*` and `ADAPTIVEROUTE_ROUTING_POLICY_*`:
+
+- **Qwen2.5-Coder-32B** — orchestrator. Off the shelf, temperature 0.1. Reads the driver's message,
+  extracts the event, answers route questions.
+- **Qwen2.5-7B + LoRA v5** — routing policy. Fine-tuned, temperature 0. Emits the stop sequence.
+
+Keep this distinction intact when editing: the 94.4% feasibility figure describes the **routing
+policy only**, and the deck scopes it that way deliberately. A screenshot in slide 10 shows the
+32B's model id in the execution trace, so a vague claim would be visibly contradicted on screen.
 
 Figures in the deck are drawn inline (TikZ in the PDF, SVG in the HTML) — there are no
 external image assets to keep in sync.

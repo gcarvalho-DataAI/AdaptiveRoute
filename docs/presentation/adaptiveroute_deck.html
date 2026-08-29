@@ -178,6 +178,37 @@
   .thesis { font-size: 3.2em; font-weight: 900; text-align: center; line-height: 1.1;
             letter-spacing: -.055em; margin-bottom: .55em; }
 
+  /* ---------- product screenshots ---------- */
+  /* Both screenshots are near-square, so on a 16:9 slide they are height-constrained.
+     Callouts sit beside the image to use the horizontal space that would otherwise be empty. */
+  .shot-slide { padding-top: 2.4em; padding-bottom: 2.6em; }
+  .shot-slide h1 { font-size: 1.9em; margin-bottom: .6em; }
+  .body.fill { flex: 1 1 auto; min-height: 0; display: flex; gap: 2.4em; align-items: stretch; }
+  .shot-wrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; }
+  .shot-wrap img {
+    max-height: 100%; max-width: 100%; width: auto; height: auto;
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow); display: block;
+  }
+  .callouts { flex: 0 0 19em; display: flex; flex-direction: column; justify-content: center; gap: 1.7em; }
+  .callout { border-left: 2px solid var(--cyan); padding-left: .9em; }
+  .callout b { display: block; color: var(--text); font-weight: 700; margin-bottom: .25em; }
+  .callout span { color: var(--muted); font-size: .93em; line-height: 1.45; }
+  @media (max-width: 820px) {
+    .body.fill { flex-direction: column; gap: 1.2em; }
+    .callouts { flex: 0 0 auto; }
+  }
+
+  /* ---------- model split ---------- */
+  .mrole { display: block; margin-bottom: .3em; color: var(--faint); font-size: .82em; }
+  .mname { font-size: 1.35em; font-weight: 800; letter-spacing: -.03em; margin-bottom: .5em; }
+  .mspec { display: flex; gap: .6em; flex-wrap: wrap; margin-top: .9em; }
+  .chip {
+    display: inline-flex; align-items: center; min-height: 1.9em; padding: 0 .7em;
+    border: 1px solid var(--border); border-radius: 999px;
+    color: var(--muted); font-size: .78em; font-weight: 700;
+  }
+
   /* ---------- diagram ---------- */
   svg.dg { width: 100%; height: auto; display: block; }
   .n-box  { fill: rgba(255,255,255,.045); stroke: rgba(126,149,178,.22); stroke-width: 1; }
@@ -350,7 +381,44 @@
     </div>
   </section>
 
-  <!-- 5 · architecture -->
+  <!-- 5 · two models -->
+  <section class="slide">
+    <div class="eyebrow">AdaptiveRoute · Two models, two jobs</div>
+    <h1>Breadth where the problem is open.<br>Precision where it is narrow.</h1>
+    <div class="body">
+      <div class="cols c2">
+        <div class="panel">
+          <span class="mrole">ORCHESTRATOR · OFF THE SHELF</span>
+          <div class="mname">Qwen2.5-Coder-32B</div>
+          <p class="muted" style="margin:0">Reads the driver's message, extracts the operational
+          event, answers questions about the route.</p>
+          <div class="mspec">
+            <span class="chip">general purpose</span>
+            <span class="chip">temperature 0.1</span>
+          </div>
+        </div>
+        <div class="panel glow">
+          <span class="mrole" style="color:var(--cyan-2)">ROUTING POLICY · FINE-TUNED</span>
+          <div class="mname">Qwen2.5-7B <span class="cy">+ LoRA v5</span></div>
+          <p class="muted" style="margin:0">Emits the sequence of stops. Nothing else. Trained on
+          the solver's own output.</p>
+          <div class="mspec">
+            <span class="chip">specialised</span>
+            <span class="chip">temperature 0</span>
+          </div>
+        </div>
+      </div>
+      <p style="margin:1.5em 0 0;text-align:center;font-size:1.08em">The 32B never touches a route.
+      <span class="grad">The 7B never talks to a driver.</span></p>
+    </div>
+    <div class="notes">This is a right-sizing argument. Language understanding is open-ended and
+    needs breadth, so it gets a large general model off the shelf. Emitting a valid route JSON is a
+    narrow structured task that needs precision and speed, so it gets a small fine-tuned specialist
+    — and it sits on the hot path, so you are not paying 32B inference for every candidate. The two
+    are configured independently: separate base URLs, models and temperatures.</div>
+  </section>
+
+  <!-- 6 · architecture -->
   <section class="slide">
     <div class="eyebrow">AdaptiveRoute · Architecture</div>
     <h1>FastAPI core, pluggable<br>everywhere it matters</h1>
@@ -366,13 +434,17 @@
         <text x="330" y="83"  class="tb" text-anchor="middle">FastAPI</text>
         <text x="330" y="100" class="ts" text-anchor="middle">JWT · CORS · LOGS</text>
 
-        <rect x="486" y="26"  width="176" height="34" rx="12" class="n-core"/>
-        <text x="574" y="47"  class="ta" text-anchor="middle">LangGraph workflow</text>
-        <rect x="486" y="84"  width="176" height="32" rx="10" class="n-box"/>
-        <text x="574" y="104" class="t"  text-anchor="middle">LoRA routing policy</text>
-        <rect x="486" y="140" width="176" height="32" rx="10" class="n-auth"/>
-        <text x="574" y="160" class="t"  text-anchor="middle">Pyomo + HiGHS</text>
-        <text x="574" y="184" class="tok" text-anchor="middle">AUTHORITY</text>
+        <rect x="486" y="18"  width="176" height="32" rx="12" class="n-core"/>
+        <text x="574" y="38"  class="ta" text-anchor="middle">LangGraph workflow</text>
+        <rect x="486" y="66"  width="176" height="36" rx="10" class="n-box"/>
+        <text x="574" y="82"  class="t"  text-anchor="middle">Orchestrator</text>
+        <text x="574" y="95"  class="ts" text-anchor="middle">QWEN2.5-CODER-32B</text>
+        <rect x="486" y="118" width="176" height="36" rx="10" class="n-core"/>
+        <text x="574" y="134" class="t"  text-anchor="middle">Routing policy</text>
+        <text x="574" y="147" class="ts" text-anchor="middle">QWEN2.5-7B + LORA V5</text>
+        <rect x="486" y="170" width="176" height="32" rx="10" class="n-auth"/>
+        <text x="574" y="190" class="t"  text-anchor="middle">Pyomo + HiGHS</text>
+        <text x="574" y="214" class="tok" text-anchor="middle">AUTHORITY</text>
 
         <rect x="252" y="150" width="156" height="32" rx="10" class="n-box"/>
         <text x="330" y="170" class="t"  text-anchor="middle">MongoDB</text>
@@ -383,9 +455,10 @@
 
         <path d="M160 66 L246 80"   class="ln" marker-end="url(#m1)"/>
         <path d="M160 112 L246 96"  class="ln" marker-end="url(#m1)"/>
-        <path d="M408 79 L481 48"   class="ln" marker-end="url(#m1)"/>
-        <path d="M574 60 L574 80"   class="ln" marker-end="url(#m1)"/>
-        <path d="M574 116 L574 136" class="ln" marker-end="url(#m1)"/>
+        <path d="M408 79 L481 40"   class="ln" marker-end="url(#m1)"/>
+        <path d="M574 50 L574 62"   class="ln" marker-end="url(#m1)"/>
+        <path d="M574 102 L574 114" class="ln" marker-end="url(#m1)"/>
+        <path d="M574 154 L574 166" class="ln" marker-end="url(#m1)"/>
         <path d="M330 114 L330 146" class="ln" marker-end="url(#m1)"/>
         <path d="M330 182 L330 198" class="ln" marker-end="url(#m1)"/>
 
@@ -410,11 +483,12 @@
         <text x="292" y="22"  class="t" text-anchor="middle">“There was an accident between C7 and C6”</text>
         <rect x="176" y="44"  width="232" height="28" rx="9" class="n-box"/>
         <text x="292" y="62"  class="t" text-anchor="middle">Extract structured event</text>
+        <text x="169" y="62"  class="ts" text-anchor="end">32B</text>
         <rect x="176" y="84"  width="232" height="28" rx="9" class="n-box"/>
         <text x="292" y="102" class="t" text-anchor="middle">Apply mutation to scenario</text>
         <rect x="176" y="124" width="232" height="28" rx="9" class="n-core"/>
-        <text x="292" y="142" class="t" text-anchor="middle">LoRA candidate</text>
-        <text x="169" y="142" class="ts" text-anchor="end">~1.7S</text>
+        <text x="292" y="142" class="t" text-anchor="middle">Route candidate</text>
+        <text x="169" y="142" class="ts" text-anchor="end">7B · ~1.7S</text>
         <rect x="176" y="172" width="232" height="28" rx="9" class="n-box"/>
         <text x="292" y="190" class="t" text-anchor="middle">Conservative repair</text>
         <rect x="176" y="220" width="232" height="28" rx="9" class="n-box"/>
@@ -498,7 +572,51 @@
     correction prompt rather than a generic retry.</div>
   </section>
 
-  <!-- 8 · training -->
+  <!-- 9 · product -->
+  <section class="slide shot-slide">
+    <div class="eyebrow">AdaptiveRoute · The product</div>
+    <h1>Admin console</h1>
+    <div class="body fill">
+      <div class="shot-wrap"><img src="img/admin-dashboard.png"
+        alt="AdaptiveRoute admin console showing today's routes, scenario selector, driver route selector and a map of a route across New York"></div>
+      <div class="callouts">
+        <div class="callout"><b>Real road routing</b><span>Geometry snapped to the street network
+        by OSRM, not straight lines between stops.</span></div>
+        <div class="callout"><b>Fleet and scenarios</b><span>Orders ingested, scenarios persisted,
+        routes assigned to named drivers.</span></div>
+        <div class="callout"><b>Disruption watch</b><span>The incident panel is where a driver's
+        report surfaces on the operations side.</span></div>
+      </div>
+    </div>
+    <div class="notes">Worth pointing at the map legend: the “osrm” tag means these are real road
+    distances and real geometry. Without OSRM the system still works — it falls back to haversine and
+    straight-line geometry — which is fine for the maths but looks obviously synthetic on screen.</div>
+  </section>
+
+  <!-- 10 · agent at work -->
+  <section class="slide shot-slide">
+    <div class="eyebrow">AdaptiveRoute · The agent at work</div>
+    <h1>Everything so far, running</h1>
+    <div class="body fill">
+      <div class="shot-wrap"><img src="img/route-chat.png"
+        alt="Route replanning chat showing a driver conversation, the generated route on a map, the agent execution trace, the validated plan output and the rolling context window"></div>
+      <div class="callouts">
+        <div class="callout"><b>Agent execution</b><span>The trace from slide 7, step by step:
+        lookup, fact builder, retrieval, model.</span></div>
+        <div class="callout"><b>Validated plan</b><span>Route, total distance and validation state —
+        the contract, enforced.</span></div>
+        <div class="callout"><b>Rolling memory</b><span>Context window carrying facts and
+        constraints across the conversation.</span></div>
+      </div>
+    </div>
+    <div class="notes">This is the slide to linger on. The right-hand column is the architecture made
+    visible: the execution trace is the LangGraph workflow, the plan output is the validation
+    contract, and the context window is what lets a driver say “and what about the next stop?”
+    without repeating themselves. The conversation itself is ordinary language — no commands, no
+    syntax.</div>
+  </section>
+
+  <!-- 11 · training -->
   <section class="slide">
     <div class="eyebrow">AdaptiveRoute · Building the routing policy</div>
     <h1>Supervised fine-tuning where<br>the optimiser is the teacher</h1>
@@ -529,6 +647,8 @@
             <tr><td>Epochs</td><td>1</td></tr>
             <tr><td>Hardware</td><td>RTX 3090 · 24 GB</td></tr>
           </table>
+          <p class="faint" style="margin:.9em 0 0">Only the routing policy is fine-tuned. The
+          orchestrator stays off the shelf.</p>
         </div>
       </div>
     </div>
@@ -703,7 +823,8 @@
     <h1>The system stays correct<br>when the model is wrong</h1>
     <div class="body">
       <ul style="font-size:1.12em;line-height:1.45">
-        <li><span class="gn">94.4% feasible replans</span> at the size it was trained for</li>
+        <li>The routing policy returns <span class="gn">94.4% feasible replans</span> at the size it
+        was trained for</li>
         <li>The remaining <span class="cy">5.6% is harmless</span> — validation, repair, fallback</li>
         <li>A measured boundary of <span class="cy">8–9 customers</span>, not an assumed one</li>
         <li style="margin-bottom:0">Natural language to validated route,
@@ -721,7 +842,7 @@
   <div class="prog" id="prog"></div>
   <div class="foot">
     <span>AdaptiveRoute · Proof of Concept</span>
-    <span class="n" id="num">1 / 14</span>
+    <span class="n" id="num">1 / 17</span>
   </div>
 </div>
 

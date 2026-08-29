@@ -5,6 +5,7 @@
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{colortbl}
+\usepackage{graphicx}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
 
@@ -98,7 +99,7 @@
 \setbeamertemplate{footline}{%
   \hbox{\begin{beamercolorbox}[wd=\paperwidth,ht=2.6ex,dp=1.6ex,leftskip=1.5em,rightskip=1.5em]{}%
     {\color{arFaint}\scriptsize\bfseries AdaptiveRoute \textperiodcentered\ Proof of Concept}%
-    \hfill{\color{arMuted}\scriptsize\bfseries\insertframenumber\,/\,14}%
+    \hfill{\color{arMuted}\scriptsize\bfseries\insertframenumber\,/\,17}%
   \end{beamercolorbox}}%
 }
 
@@ -241,7 +242,44 @@
 \end{frame}
 }
 
-% ================================================================ 5 architecture
+% ================================================================ 5 two models
+\begin{frame}
+  \frametitle{Breadth where the problem is open.\\ Precision where it is narrow.}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ Two models, two jobs}
+
+  \vspace{0.7em}
+  \begin{columns}[T]
+    \begin{column}{0.478\linewidth}
+      \begin{panel}{\linewidth}
+        {\color{arFaint}\scriptsize\bfseries ORCHESTRATOR \textperiodcentered\ OFF THE SHELF}\\[0.5em]
+        {\color{arText}\Large\bfseries Qwen2.5-Coder-32B}\\[0.6em]
+        \muted{\small Reads the driver's message, extracts the operational event, answers questions
+        about the route.}\\[0.7em]
+        \faint{general purpose \textperiodcentered\ temperature 0.1}
+      \end{panel}
+    \end{column}
+    \begin{column}{0.478\linewidth}
+      \begin{panelglow}{\linewidth}
+        {\color{arCyan2}\scriptsize\bfseries ROUTING POLICY \textperiodcentered\ FINE-TUNED}\\[0.5em]
+        {\color{arText}\Large\bfseries Qwen2.5-7B \color{arCyan2}+ LoRA v5}\\[0.6em]
+        \muted{\small Emits the sequence of stops. Nothing else. Trained on the solver's own output.}\\[0.7em]
+        \faint{specialised \textperiodcentered\ temperature 0}
+      \end{panelglow}
+    \end{column}
+  \end{columns}
+
+  \vspace{1.1em}
+  \centering
+  The 32B never touches a route. \cy{The 7B never talks to a driver.}
+
+  \note{This is a right-sizing argument. Language understanding is open-ended and needs breadth, so
+  it gets a large general model off the shelf. Emitting a valid route JSON is a narrow structured
+  task that needs precision and speed, so it gets a small fine-tuned specialist --- and it sits on
+  the hot path, so you are not paying 32B inference for every candidate. The two are configured
+  independently: separate base URLs, models and temperatures.}
+\end{frame}
+
+% ================================================================ 6 architecture
 \begin{frame}
   \frametitle{FastAPI core, pluggable\\ everywhere it matters}
   \framesubtitle{AdaptiveRoute \textperiodcentered\ Architecture}
@@ -267,10 +305,11 @@
 
     \node[core] (api) at (2.1,1.95) {\textbf{FastAPI}\\[-2pt]\tiny JWT \textperiodcentered\ CORS \textperiodcentered\ LOGS};
 
-    \node[core] (graph)  at (6.7,3.0) {LangGraph workflow};
-    \node[box]  (policy) at (6.7,1.6) {LoRA routing policy};
-    \node[auth] (solver) at (6.7,0.4) {Pyomo + HiGHS};
-    \node[ok] at (6.7,-0.25) {AUTHORITY};
+    \node[core] (graph)  at (6.7,3.25) {LangGraph workflow};
+    \node[box]  (orch)   at (6.7,2.15) {Orchestrator\\[-2pt]\tiny\color{arFaint}QWEN2.5-CODER-32B};
+    \node[core] (policy) at (6.7,1.0)  {Routing policy\\[-2pt]\tiny\color{arFaint}QWEN2.5-7B + LORA V5};
+    \node[auth] (solver) at (6.7,-0.1) {Pyomo + HiGHS};
+    \node[ok] at (6.7,-0.72) {AUTHORITY};
 
     \node[box] (mongo) at (2.1,0.2)  {MongoDB};
     \node[box] (pg)    at (2.1,-0.9) {Postgres + pgvector};
@@ -280,7 +319,8 @@
     \draw[ar] (admin.east)  -- (api.west);
     \draw[ar] (driver.east) -- (api.west);
     \draw[ar] (api.east)    -- (graph.west);
-    \draw[ar] (graph.south) -- (policy.north);
+    \draw[ar] (graph.south) -- (orch.north);
+    \draw[ar] (orch.south)  -- (policy.north);
     \draw[ar] (policy.south)-- (solver.north);
     \draw[ar] (api.south)   -- (mongo.north);
     \draw[ar] (mongo.south) -- (pg.north);
@@ -317,7 +357,8 @@
     \node[box]  (msg)   at (0,4.0)  {``There was an accident between C7 and C6''};
     \node[box]  (extr)  at (0,3.1)  {Extract structured event};
     \node[box]  (mut)   at (0,2.2)  {Apply mutation to scenario};
-    \node[core] (cand)  at (0,1.3)  {LoRA candidate};
+    \node[core] (cand)  at (0,1.3)  {Route candidate};
+    \node[lbl,left=1.5mm of extr] {32B};
     \node[box]  (rep)   at (0,0.3)  {Conservative repair};
     \node[box]  (fall)  at (0,-0.7) {Pyomo + HiGHS fallback};
     \node[auth] (final) at (0,-1.75){Validated plan to the driver};
@@ -325,7 +366,7 @@
     \node[gate] (g1) at (5.1,1.3) {validate};
     \node[gate] (g2) at (5.1,0.3) {validate};
 
-    \node[lbl,left=1.5mm of cand] {$\sim$1.7S};
+    \node[lbl,left=1.5mm of cand] {7B \textperiodcentered\ $\sim$1.7S};
     \node[lbl,left=1.5mm of fall] {SECONDS};
 
     \draw[ar] (msg)  -- (extr);
@@ -389,7 +430,69 @@
   prompt rather than a generic retry.}
 \end{frame}
 
-% ================================================================ 8 training
+% ================================================================ 9 product
+% Accent bar + text. The rule is drawn with a negative depth so it spans the
+% whole block instead of sitting on the last baseline.
+\newcommand{\callout}[2]{%
+  \noindent
+  {\color{arCyan}\rule[-4.2ex]{1.2pt}{6.0ex}}\hspace{0.6em}%
+  \begin{minipage}[t]{0.86\linewidth}
+    \raggedright
+    {\color{arText}\small\bfseries #1}\\[0.3em]
+    \muted{\scriptsize #2}
+  \end{minipage}}
+
+\begin{frame}
+  \frametitle{Admin console}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ The product}
+
+  \vspace{0.3em}
+  \begin{columns}[c]
+    \begin{column}{0.72\linewidth}
+      \includegraphics[width=\linewidth,height=0.84\textheight,keepaspectratio]{img/admin-dashboard.png}
+    \end{column}
+    \begin{column}{0.255\linewidth}
+      \callout{Real road routing}{Geometry snapped to the street network by OSRM, not straight lines
+      between stops.}\\[1.1em]
+      \callout{Fleet and scenarios}{Orders ingested, scenarios persisted, routes assigned to named
+      drivers.}\\[1.1em]
+      \callout{Disruption watch}{The incident panel is where a driver's report surfaces on the
+      operations side.}
+    \end{column}
+  \end{columns}
+
+  \note{Worth pointing at the map legend: the ``osrm'' tag means these are real road distances and
+  real geometry. Without OSRM the system still works --- it falls back to haversine and straight-line
+  geometry --- which is fine for the maths but looks obviously synthetic on screen.}
+\end{frame}
+
+% ================================================================ 10 agent at work
+\begin{frame}
+  \frametitle{Everything so far, running}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ The agent at work}
+
+  \vspace{0.3em}
+  \begin{columns}[c]
+    \begin{column}{0.72\linewidth}
+      \includegraphics[width=\linewidth,height=0.84\textheight,keepaspectratio]{img/route-chat.png}
+    \end{column}
+    \begin{column}{0.255\linewidth}
+      \callout{Agent execution}{The trace from the validation slide, step by step: lookup, fact
+      builder, retrieval, model.}\\[1.1em]
+      \callout{Validated plan}{Route, total distance and validation state --- the contract,
+      enforced.}\\[1.1em]
+      \callout{Rolling memory}{Context window carrying facts and constraints across the
+      conversation.}
+    \end{column}
+  \end{columns}
+
+  \note{This is the slide to linger on. The right-hand column is the architecture made visible: the
+  execution trace is the LangGraph workflow, the plan output is the validation contract, and the
+  context window is what lets a driver say ``and what about the next stop?'' without repeating
+  themselves. The conversation itself is ordinary language --- no commands, no syntax.}
+\end{frame}
+
+% ================================================================ 11 training
 \begin{frame}
   \frametitle{Supervised fine-tuning where\\ the optimiser is the teacher}
   \framesubtitle{AdaptiveRoute \textperiodcentered\ Building the routing policy}
@@ -426,7 +529,8 @@
           Compute dtype & \color{arText}\bfseries bfloat16 \\
           Epochs        & \color{arText}\bfseries 1 \\
           Hardware      & \color{arText}\bfseries RTX 3090 \textperiodcentered\ 24\,GB \\
-        \end{tabular}
+        \end{tabular}\\[0.8em]
+        \faint{Only the routing policy is fine-tuned. The orchestrator stays off the shelf.}
       \end{panel}
     \end{column}
   \end{columns}
@@ -621,7 +725,8 @@
   \vspace{1.3em}
   \large
   \begin{itemize}\setlength\itemsep{0.75em}
-    \item[\color{arCyan}$\bullet$] \gn{94.4\% feasible replans} at the size it was trained for
+    \item[\color{arCyan}$\bullet$] The routing policy returns \gn{94.4\% feasible replans} at the
+          size it was trained for
     \item[\color{arCyan}$\bullet$] The remaining \cy{5.6\% is harmless} --- validation, repair, fallback
     \item[\color{arCyan}$\bullet$] A measured boundary of \cy{8--9 customers}, not an assumed one
     \item[\color{arCyan}$\bullet$] Natural language to validated route, \cy{end to end}
