@@ -209,6 +209,13 @@
     color: var(--muted); font-size: .78em; font-weight: 700;
   }
 
+  /* ---------- references ---------- */
+  .ref { margin-bottom: .85em; }
+  .ref:last-child { margin-bottom: 0; }
+  .ref b { color: var(--text); font-size: .92em; font-weight: 700; }
+  .ref i { color: var(--faint); font-size: .88em; font-style: normal; }
+  .ref span { display: block; margin-top: .12em; color: var(--muted); font-size: .82em; line-height: 1.4; }
+
   /* ---------- diagram ---------- */
   svg.dg { width: 100%; height: auto; display: block; }
   .n-box  { fill: rgba(255,255,255,.045); stroke: rgba(126,149,178,.22); stroke-width: 1; }
@@ -303,7 +310,6 @@
     <div class="bigtitle">Agentic<br>replanning</div>
     <div class="tagline">A fine-tuned routing policy for speed.<br>A MILP solver for the guarantee.</div>
     <div class="byline">
-      <span class="pill">Proof of concept · 5 days</span>
       <span class="muted">Gabriel Carvalho Domingos da Conceição</span>
     </div>
   </section>
@@ -555,21 +561,14 @@
           </ul>
         </div>
       </div>
-      <div class="cols c2" style="margin-top:1.3em">
-        <div>
-          <p class="panel-label" style="color:var(--green)">Numbers cannot be hallucinated</p>
-          <p class="muted" style="margin:0">The validator <span class="gn">recomputes</span> load and distance.</p>
-        </div>
-        <div>
-          <p class="panel-label" style="color:var(--green)">Failure is a prompt, not an error</p>
-          <p class="muted" style="margin:0">Violations feed back. Three attempts, then the solver.</p>
-        </div>
-      </div>
+      <p style="margin:1.6em 0 0;text-align:center;font-size:1.08em"><span class="gn">No exceptions.</span>
+      The same gate applies to the model, the repair and the solver.</p>
     </div>
-    <div class="notes">The model supplies only the visit sequence — every number in the final plan is
-    recomputed from the scenario, so a hallucinated distance cannot survive. When validation fails,
-    the specific violations (“capacity_violation: load 45, capacity 40”) are fed back as a structured
-    correction prompt rather than a generic retry.</div>
+    <div class="notes">Two properties make this more than a checklist. First, the validator recomputes
+    load and distance from the scenario — the model supplies only the visit sequence, so a
+    hallucinated number cannot survive. Second, failure is a prompt rather than an error: the specific
+    violations (“capacity_violation: load 45, capacity 40”) are fed back as a structured correction
+    prompt, three attempts, then the solver takes over.</div>
   </section>
 
   <!-- 9 · product -->
@@ -621,37 +620,20 @@
     <div class="eyebrow">AdaptiveRoute · Building the routing policy</div>
     <h1>Supervised fine-tuning where<br>the optimiser is the teacher</h1>
     <div class="body">
-      <div class="cols c2">
-        <div class="panel">
-          <span class="panel-label">How training data is made</span>
-          <ol style="margin:.7em 0 0">
-            <li>Generate a synthetic CVRP instance</li>
-            <li>Solve it to optimality with HiGHS</li>
-            <li>Inject an operational event</li>
-            <li><span class="cy">Re-solve</span> the disrupted scenario</li>
-            <li style="margin-bottom:0">Validate, then serialise the pair</li>
-          </ol>
-          <p class="faint" style="margin:1em 0 0">The solver labels its own training set. The model learns to
-          imitate optimal replanning, not to invent it.</p>
-        </div>
-        <div class="panel">
-          <span class="panel-label">Configuration</span>
-          <table class="spec" style="margin-top:.6em">
-            <tr><td>Base model</td><td>Qwen2.5-7B-Instruct</td></tr>
-            <tr><td>Method</td><td>LoRA / QLoRA</td></tr>
-            <tr><td>Rank <em>r</em></td><td>16</td></tr>
-            <tr><td>Alpha</td><td>32</td></tr>
-            <tr><td>Dropout</td><td>0.05</td></tr>
-            <tr><td>Quantisation</td><td>4-bit NF4</td></tr>
-            <tr><td>Compute dtype</td><td>bfloat16</td></tr>
-            <tr><td>Epochs</td><td>1</td></tr>
-            <tr><td>Hardware</td><td>RTX 3090 · 24 GB</td></tr>
-          </table>
-          <p class="faint" style="margin:.9em 0 0">Only the routing policy is fine-tuned. The
-          orchestrator stays off the shelf.</p>
-        </div>
-      </div>
+      <ol style="font-size:1.22em;line-height:1.4">
+        <li>Generate a synthetic CVRP instance</li>
+        <li>Solve it to optimality with HiGHS</li>
+        <li>Inject an operational event</li>
+        <li><span class="cy">Re-solve</span> the disrupted scenario</li>
+        <li style="margin-bottom:0">Validate, then serialise the pair</li>
+      </ol>
+      <p class="muted" style="margin:1.8em 0 0;text-align:center">The solver labels its own
+      training set.</p>
     </div>
+    <div class="notes">The model learns to imitate optimal replanning, not to invent it. Only the
+    routing policy is fine-tuned — the orchestrator stays off the shelf. Full configuration is in the
+    appendix: LoRA rank 16, alpha 32, dropout 0.05, 4-bit NF4, bfloat16, one epoch, on a single
+    RTX 3090.</div>
   </section>
 
   <!-- 9 · results -->
@@ -714,55 +696,21 @@
           <div class="panel glow">
             <span class="panel-label">The boundary</span>
             <h3 style="font-size:1.6em;margin-bottom:.35em">8–9 customers</h3>
-            <p class="muted" style="margin:0">Above it the model omits customers — it does not route
-            them badly.</p>
+            <p class="muted" style="margin:0 0 1em">Above it the model omits customers — it does not
+            route them badly.</p>
+            <p class="cy" style="margin:0">A cardinality limit, not a routing one.</p>
           </div>
-          <p style="margin:1.2em 0 .6em">A <span class="cy">cardinality limit</span>, not a routing-quality
-          problem. The fix is training data at 10–24 customers.</p>
-          <p class="faint" style="margin:0">Beyond the boundary the plan is still correct — the cascade
-          falls through to the solver.</p>
         </div>
       </div>
     </div>
     <div class="notes">The omitted customers are the ones whose identifiers sit at the edge of the
     training distribution — C10 and above, which the model rarely saw. That is why this reads as a
     generalisation failure rather than an optimisation failure, and why a better prompt does not fix
-    it. Note the samples are small: 3–5 scenarios per size.</div>
+    it. The fix is training data at 10–24 customers. And note that beyond the boundary the plan is
+    still correct: the cascade simply falls through to the solver every time. Samples are small —
+    3–5 scenarios per size.</div>
   </section>
 
-  <!-- 11 · engineering -->
-  <section class="slide">
-    <div class="eyebrow">AdaptiveRoute · Engineering</div>
-    <h1>What was built to make<br>the result trustworthy</h1>
-    <div class="body">
-      <div class="stats">
-        <div class="stat">
-          <div class="statnum grad">73</div>
-          <div class="statlbl">Python modules,<br>~11,800 lines</div>
-        </div>
-        <div class="stat">
-          <div class="statnum grad">24</div>
-          <div class="statlbl">test files, runnable<br>without GPU or database</div>
-        </div>
-        <div class="stat">
-          <div class="statnum grad">11</div>
-          <div class="statlbl">architecture and<br>evaluation documents</div>
-        </div>
-      </div>
-      <div class="cols c2" style="margin-top:1.5em">
-        <ul style="margin:0">
-          <li>Immutable domain model throughout</li>
-          <li>Service / repository separation</li>
-          <li style="margin:0">Protocol interfaces at every seam</li>
-        </ul>
-        <ul style="margin:0">
-          <li>CI split: fast API and forked solver tests</li>
-          <li>bcrypt credentials, signed JWT, scoped CORS</li>
-          <li style="margin:0">Structured logs with request ids</li>
-        </ul>
-      </div>
-    </div>
-  </section>
 
   <!-- 12 · limits -->
   <section class="slide">
@@ -819,7 +767,7 @@
 
   <!-- 14 · close -->
   <section class="slide">
-    <div class="eyebrow">AdaptiveRoute · What the proof of concept established</div>
+    <div class="eyebrow">AdaptiveRoute · What this establishes</div>
     <h1>The system stays correct<br>when the model is wrong</h1>
     <div class="body">
       <ul style="font-size:1.12em;line-height:1.45">
@@ -830,7 +778,7 @@
         <li style="margin-bottom:0">Natural language to validated route,
         <span class="cy">end to end</span></li>
       </ul>
-      <p class="faint" style="text-align:center;margin:2em 0 0">Built in five days. The interesting result is
+      <p class="faint" style="text-align:center;margin:2em 0 0">The interesting result is
       not the model — it is everything built around it.</p>
     </div>
     <div class="notes">The claim is deliberately narrow: feasible at the size it was trained for. The
@@ -839,10 +787,87 @@
     rather than a demonstration of components: one message in, one validated route out.</div>
   </section>
 
+  <!-- 17 - theoretical grounding -->
+  <section class="slide">
+    <div class="eyebrow">AdaptiveRoute &middot; Theoretical grounding</div>
+    <h1>Where this sits in the literature</h1>
+    <div class="body">
+      <div class="cols c3">
+        <div class="panel">
+          <span class="panel-label">Exact routing</span>
+          <div class="ref"><b>Dantzig, Ramser</b> <i>1959</i><span>The truck dispatching problem. Management Science 6(1).</span></div>
+          <div class="ref"><b>Miller, Tucker, Zemlin</b> <i>1960</i><span>Integer programming formulation of TSP. J. ACM 7(4).</span></div>
+          <div class="ref"><b>Huangfu, Hall</b> <i>2018</i><span>Parallelizing the dual revised simplex method. Math. Prog. Comp. 10(1).</span></div>
+        </div>
+        <div class="panel">
+          <span class="panel-label">Learning for optimisation</span>
+          <div class="ref"><b>Vinyals, Fortunato, Jaitly</b> <i>2015</i><span>Pointer networks. NeurIPS.</span></div>
+          <div class="ref"><b>Kool, van Hoof, Welling</b> <i>2019</i><span>Attention, learn to solve routing problems! ICLR.</span></div>
+          <div class="ref"><b>Bengio, Lodi, Prouvost</b> <i>2021</i><span>ML for combinatorial optimization: a tour d&rsquo;horizon. EJOR 290(2).</span></div>
+        </div>
+        <div class="panel glow">
+          <span class="panel-label">Efficient LLM adaptation</span>
+          <div class="ref"><b>Hu et al.</b> <i>2021</i><span>LoRA: low-rank adaptation of large language models. arXiv:2106.09685.</span></div>
+          <div class="ref"><b>Dettmers et al.</b> <i>2023</i><span>QLoRA: efficient finetuning of quantized LLMs. arXiv:2305.14314.</span></div>
+        </div>
+      </div>
+      <p style="margin:1.5em 0 0;text-align:center">Prior work replaces the solver.
+      <span class="cy">This keeps it as the authority.</span></p>
+    </div>
+    <div class="notes">The positioning matters. Pointer Networks and Kool et al. ask whether a neural
+    network can solve routing end to end &mdash; impressive, but no feasibility guarantee. Bengio,
+    Lodi and Prouvost survey the hybrid alternative, where learning assists rather than replaces
+    exact methods. This project takes that hybrid stance and pushes it further: the learned component
+    is a fine-tuned LLM operating on natural language rather than a graph neural network, and the
+    exact solver remains the final authority on every plan.</div>
+  </section>
+
+  <!-- 18 - appendix -->
+  <section class="slide">
+    <div class="eyebrow">AdaptiveRoute &middot; Appendix</div>
+    <h1>Training configuration</h1>
+    <div class="body">
+      <div class="cols c2">
+        <div class="panel">
+          <span class="panel-label">Adapter</span>
+          <table class="spec" style="margin-top:.6em">
+            <tr><td>Base model</td><td>Qwen2.5-7B-Instruct</td></tr>
+            <tr><td>Method</td><td>LoRA / QLoRA</td></tr>
+            <tr><td>Rank <em>r</em></td><td>16</td></tr>
+            <tr><td>Alpha</td><td>32</td></tr>
+            <tr><td>Dropout</td><td>0.05</td></tr>
+            <tr><td>Quantisation</td><td>4-bit NF4</td></tr>
+            <tr><td>Compute dtype</td><td>bfloat16</td></tr>
+            <tr><td>Epochs</td><td>1</td></tr>
+          </table>
+        </div>
+        <div class="panel">
+          <span class="panel-label">Runs &mdash; each continues the previous adapter</span>
+          <div class="tw" style="margin-top:.7em;border:0;background:none">
+            <table>
+              <thead><tr><th class="l"></th><th>Rows</th><th>Steps</th><th>LR</th><th>Time</th></tr></thead>
+              <tbody>
+                <tr><td class="l">v3</td><td>24,000</td><td>3,000</td><td>5e-5</td><td>5h53m</td></tr>
+                <tr><td class="l">v4</td><td>56,000</td><td>2,300</td><td>1.7e-5</td><td>3h44m</td></tr>
+                <tr class="hl"><td class="l">v5</td><td>16,000</td><td>1,500</td><td>1e-5</td><td>2h22m</td></tr>
+                <tr><td class="l">v6</td><td>8,000</td><td>800</td><td>7e-6</td><td>1h18m</td></tr>
+                <tr><td class="l muted">total</td><td></td><td></td><td></td><td><strong>~13h</strong></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="faint" style="margin:.9em 0 0">One epoch per run, batch 8, cosine schedule,
+          RTX 3090.</p>
+        </div>
+      </div>
+      <p class="faint" style="margin:1.4em 0 0;text-align:center">Only the routing policy is
+      fine-tuned. The orchestrator stays off the shelf.</p>
+    </div>
+  </section>
+
   <div class="prog" id="prog"></div>
   <div class="foot">
-    <span>AdaptiveRoute · Proof of Concept</span>
-    <span class="n" id="num">1 / 17</span>
+    <span>AdaptiveRoute</span>
+    <span class="n" id="num">1 / 18</span>
   </div>
 </div>
 

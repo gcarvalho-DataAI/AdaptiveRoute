@@ -73,7 +73,8 @@ If the frontend palette changes, update the `:root` block in the HTML deck and t
 | 5–8 | Two-model split, architecture, cascade, validation contract |
 | 9–10 | The product, running |
 | 11–13 | Training, results, measured limits |
-| 14–17 | Engineering, known limits, next steps, close |
+| 14–16 | Known limits, next steps, close |
+| 17–18 | Theoretical grounding, appendix |
 
 ### The two-model claim
 

@@ -98,8 +98,8 @@
 
 \setbeamertemplate{footline}{%
   \hbox{\begin{beamercolorbox}[wd=\paperwidth,ht=2.6ex,dp=1.6ex,leftskip=1.5em,rightskip=1.5em]{}%
-    {\color{arFaint}\scriptsize\bfseries AdaptiveRoute \textperiodcentered\ Proof of Concept}%
-    \hfill{\color{arMuted}\scriptsize\bfseries\insertframenumber\,/\,17}%
+    {\color{arFaint}\scriptsize\bfseries AdaptiveRoute}%
+    \hfill{\color{arMuted}\scriptsize\bfseries\insertframenumber\,/\,18}%
   \end{beamercolorbox}}%
 }
 
@@ -133,11 +133,7 @@
   {\fontsize{15}{19}\selectfont\color{arMuted}
    A fine-tuned routing policy for speed.\\ A MILP solver for the guarantee.}
 
-  \vspace{1.7em}
-  \begin{beamercolorbox}[wd=4.6cm,rounded=true,shadow=false,sep=4pt,center]{panelglow}
-    {\color{arCyan2}\scriptsize\bfseries PROOF OF CONCEPT \textperiodcentered\ 5 DAYS}
-  \end{beamercolorbox}
-  \vspace{0.5em}
+  \vspace{2.0em}
   {\color{arMuted}\small Gabriel Carvalho Domingos da Conceição}
 \end{frame}
 }
@@ -412,22 +408,15 @@
     \end{minipage}
   \end{panel}
 
-  \vspace{0.6em}
-  \begin{columns}[T]
-    \begin{column}{0.47\linewidth}
-      \plabelgn{Numbers cannot be hallucinated}\\[0.5em]
-      \muted{\small The validator \gn{recomputes} load and distance.}
-    \end{column}
-    \begin{column}{0.47\linewidth}
-      \plabelgn{Failure is a prompt, not an error}\\[0.5em]
-      \muted{\small Violations feed back. Three attempts, then the solver.}
-    \end{column}
-  \end{columns}
+  \vspace{1.0em}
+  \centering
+  \gn{No exceptions.} The same gate applies to the model, the repair and the solver.
 
-  \note{The model supplies only the visit sequence --- every number in the final plan is recomputed
-  from the scenario, so a hallucinated distance cannot survive. When validation fails, the specific
-  violations (``capacity\_violation: load 45, capacity 40'') are fed back as a structured correction
-  prompt rather than a generic retry.}
+  \note{Two properties make this more than a checklist. First, the validator recomputes load and
+  distance from the scenario --- the model supplies only the visit sequence, so a hallucinated number
+  cannot survive. Second, failure is a prompt rather than an error: the specific violations
+  (``capacity\_violation: load 45, capacity 40'') are fed back as a structured correction prompt,
+  three attempts, then the solver takes over.}
 \end{frame}
 
 % ================================================================ 9 product
@@ -497,43 +486,24 @@
   \frametitle{Supervised fine-tuning where\\ the optimiser is the teacher}
   \framesubtitle{AdaptiveRoute \textperiodcentered\ Building the routing policy}
 
-  \vspace{0.6em}
-  \begin{columns}[T]
-    \begin{column}{0.478\linewidth}
-      \begin{panel}{\linewidth}
-        \plabel{How training data is made}\\[0.6em]
-        \small
-        \begin{enumerate}\setlength\itemsep{0.25em}
-          \item Generate a synthetic CVRP instance
-          \item Solve it to optimality with HiGHS
-          \item Inject an operational event
-          \item \cy{Re-solve} the disrupted scenario
-          \item Validate, then serialise the pair
-        \end{enumerate}
-        \vspace{0.6em}
-        \faint{The solver labels its own training set. The model learns to imitate optimal
-        replanning, not to invent it.}
-      \end{panel}
-    \end{column}
-    \begin{column}{0.478\linewidth}
-      \begin{panel}{\linewidth}
-        \plabel{Configuration}\\[0.7em]
-        \color{arMuted}\footnotesize
-        \begin{tabular}{@{}l@{\hspace{1.2em}}r@{}}
-          Base model    & \color{arText}\bfseries Qwen2.5-7B-Instruct \\
-          Method        & \color{arText}\bfseries LoRA / QLoRA \\
-          Rank $r$      & \color{arText}\bfseries 16 \\
-          Alpha         & \color{arText}\bfseries 32 \\
-          Dropout       & \color{arText}\bfseries 0.05 \\
-          Quantisation  & \color{arText}\bfseries 4-bit NF4 \\
-          Compute dtype & \color{arText}\bfseries bfloat16 \\
-          Epochs        & \color{arText}\bfseries 1 \\
-          Hardware      & \color{arText}\bfseries RTX 3090 \textperiodcentered\ 24\,GB \\
-        \end{tabular}\\[0.8em]
-        \faint{Only the routing policy is fine-tuned. The orchestrator stays off the shelf.}
-      \end{panel}
-    \end{column}
-  \end{columns}
+  \vspace{0.9em}
+  \large
+  \begin{enumerate}\setlength\itemsep{0.55em}
+    \item[\color{arCyan}\bfseries 1.] Generate a synthetic CVRP instance
+    \item[\color{arCyan}\bfseries 2.] Solve it to optimality with HiGHS
+    \item[\color{arCyan}\bfseries 3.] Inject an operational event
+    \item[\color{arCyan}\bfseries 4.] \cy{Re-solve} the disrupted scenario
+    \item[\color{arCyan}\bfseries 5.] Validate, then serialise the pair
+  \end{enumerate}
+  \normalsize
+
+  \vspace{1.6em}
+  \centering
+  \muted{The solver labels its own training set.}
+
+  \note{The model learns to imitate optimal replanning, not to invent it. Only the routing policy is
+  fine-tuned --- the orchestrator stays off the shelf. Full configuration is in the appendix: LoRA
+  rank 16, alpha 32, dropout 0.05, 4-bit NF4, bfloat16, one epoch, on a single RTX 3090.}
 \end{frame}
 
 % ================================================================ 9 results
@@ -611,53 +581,19 @@
     \begin{column}{0.49\linewidth}
       \begin{panelglow}{\linewidth}
         \plabel{The boundary}\\[0.4em]
-        {\color{arText}\Large\bfseries 8--9 customers}\\[0.5em]
-        \muted{\small Above it the model omits customers --- it does not route them badly.}
+        {\color{arText}\Large\bfseries 8--9 customers}\\[0.7em]
+        \muted{\small Above it the model omits customers --- it does not route them badly.}\\[0.9em]
+        \cy{A cardinality limit, not a routing one.}
       \end{panelglow}
-      \vspace{0.8em}
-
-      {\small A \cy{cardinality limit}, not a routing-quality problem. The fix is training data
-      at 10--24 customers.}\\[0.6em]
-      \faint{Beyond the boundary the plan is still correct --- the cascade falls through to the
-      solver.}
     \end{column}
   \end{columns}
 
   \note{The omitted customers are the ones whose identifiers sit at the edge of the training
   distribution --- C10 and above, which the model rarely saw. That is why this reads as a
   generalisation failure rather than an optimisation failure, and why a better prompt does not fix
-  it. Note the samples are small: 3--5 scenarios per size.}
-\end{frame}
-
-% ================================================================ 11 engineering
-\begin{frame}
-  \frametitle{What was built to make\\ the result trustworthy}
-  \framesubtitle{AdaptiveRoute \textperiodcentered\ Engineering}
-
-  \vspace{0.9em}
-  \centering
-  \stat{73}{Python modules,\\ $\sim$11{,}800 lines}\hfill
-  \stat{24}{test files, runnable\\ without GPU or database}\hfill
-  \stat{11}{architecture and\\ evaluation documents}
-
-  \vspace{1.4em}
-  \raggedright\small
-  \begin{columns}[T]
-    \begin{column}{0.47\linewidth}
-      \begin{itemize}\setlength\itemsep{0.32em}
-        \item[\color{arCyan}$\bullet$] Immutable domain model throughout
-        \item[\color{arCyan}$\bullet$] Service / repository separation
-        \item[\color{arCyan}$\bullet$] Protocol interfaces at every seam
-      \end{itemize}
-    \end{column}
-    \begin{column}{0.47\linewidth}
-      \begin{itemize}\setlength\itemsep{0.32em}
-        \item[\color{arCyan}$\bullet$] CI split: fast API and forked solver tests
-        \item[\color{arCyan}$\bullet$] bcrypt credentials, signed JWT, scoped CORS
-        \item[\color{arCyan}$\bullet$] Structured logs with request ids
-      \end{itemize}
-    \end{column}
-  \end{columns}
+  it. The fix is training data at 10--24 customers. And note that beyond the boundary the plan is
+  still correct: the cascade simply falls through to the solver every time. Samples are small ---
+  3--5 scenarios per size.}
 \end{frame}
 
 % ================================================================ 12 limits
@@ -720,7 +656,7 @@
 % ================================================================ 14 close
 \begin{frame}
   \frametitle{The system stays correct\\ when the model is wrong}
-  \framesubtitle{AdaptiveRoute \textperiodcentered\ What the proof of concept established}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ What this establishes}
 
   \vspace{1.3em}
   \large
@@ -735,12 +671,109 @@
   \vspace{1.8em}
   \normalsize
   \centering
-  \faint{Built in five days. The interesting result is not the model --- it is everything built around it.}
+  \faint{The interesting result is not the model --- it is everything built around it.}
 
   \note{The claim is deliberately narrow: feasible at the size it was trained for. The architectural
   claim is the broader one --- because the system never relies on the model being right, the failure
   rate stops being a risk and becomes a latency cost. And this is a working pipeline rather than a
   demonstration of components: one message in, one validated route out.}
+\end{frame}
+
+% ================================================================ 17 theory
+\newcommand{\refitem}[3]{%
+  {\color{arText}\footnotesize\bfseries #1}\;{\color{arFaint}\footnotesize #2}\\[0.1em]
+  {\color{arMuted}\scriptsize #3}\\[0.55em]}
+
+\begin{frame}
+  \frametitle{Where this sits in the literature}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ Theoretical grounding}
+
+  \vspace{0.6em}
+  \begin{columns}[T]
+    \begin{column}{0.315\linewidth}
+      \begin{panel}{\linewidth}
+        \plabel{Exact routing}\\[0.7em]
+        \refitem{Dantzig, Ramser}{1959}{The truck dispatching problem. \emph{Management Science} 6(1).}
+        \refitem{Miller, Tucker, Zemlin}{1960}{Integer programming formulation of TSP. \emph{J. ACM} 7(4).}
+        \refitem{Huangfu, Hall}{2018}{Parallelizing the dual revised simplex method. \emph{Math. Prog. Comp.} 10(1).}
+      \end{panel}
+    \end{column}
+    \begin{column}{0.315\linewidth}
+      \begin{panel}{\linewidth}
+        \plabel{Learning for optimisation}\\[0.7em]
+        \refitem{Vinyals, Fortunato, Jaitly}{2015}{Pointer networks. \emph{NeurIPS}.}
+        \refitem{Kool, van Hoof, Welling}{2019}{Attention, learn to solve routing problems! \emph{ICLR}.}
+        \refitem{Bengio, Lodi, Prouvost}{2021}{ML for combinatorial optimization: a tour d'horizon. \emph{EJOR} 290(2).}
+      \end{panel}
+    \end{column}
+    \begin{column}{0.315\linewidth}
+      \begin{panelglow}{\linewidth}
+        \plabel{Efficient LLM adaptation}\\[0.7em]
+        \refitem{Hu et al.}{2021}{LoRA: low-rank adaptation of large language models. arXiv:2106.09685.}
+        \refitem{Dettmers et al.}{2023}{QLoRA: efficient finetuning of quantized LLMs. arXiv:2305.14314.}
+      \end{panelglow}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.8em}
+  \centering
+  \small Prior work replaces the solver. \cy{This keeps it as the authority.}
+
+  \note{The positioning matters. Pointer Networks and Kool et al. ask whether a neural network can
+  solve routing end to end --- impressive, but no feasibility guarantee. Bengio, Lodi and Prouvost
+  survey the hybrid alternative, where learning assists rather than replaces exact methods. This
+  project takes that hybrid stance and pushes it further: the learned component is a fine-tuned LLM
+  operating on natural language rather than a graph neural network, and the exact solver remains the
+  final authority on every plan.}
+\end{frame}
+
+% ================================================================ 18 appendix
+\begin{frame}
+  \frametitle{Training configuration}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ Appendix}
+
+  \vspace{0.8em}
+  \centering
+  \begin{columns}[T]
+    \begin{column}{0.36\linewidth}
+      \begin{panel}{\linewidth}
+        \plabel{Adapter}\\[0.7em]
+        \color{arMuted}\footnotesize
+        \begin{tabular}{@{}l@{\hspace{1.2em}}r@{}}
+          Base model    & \color{arText}\bfseries Qwen2.5-7B-Instruct \\
+          Method        & \color{arText}\bfseries LoRA / QLoRA \\
+          Rank $r$      & \color{arText}\bfseries 16 \\
+          Alpha         & \color{arText}\bfseries 32 \\
+          Dropout       & \color{arText}\bfseries 0.05 \\
+          Quantisation  & \color{arText}\bfseries 4-bit NF4 \\
+          Compute dtype & \color{arText}\bfseries bfloat16 \\
+          Epochs        & \color{arText}\bfseries 1 \\
+        \end{tabular}
+      \end{panel}
+    \end{column}
+    \begin{column}{0.52\linewidth}
+      \begin{panel}{\linewidth}
+        \plabel{Runs \textemdash\ each continues the previous adapter}\\[0.8em]
+        \color{arMuted}\footnotesize
+        \begin{tabular}{@{}l@{\hspace{1.0em}}r@{\hspace{1.0em}}r@{\hspace{1.0em}}r@{\hspace{1.0em}}r@{}}
+          & \color{arCyan}\scriptsize\bfseries ROWS & \color{arCyan}\scriptsize\bfseries STEPS
+          & \color{arCyan}\scriptsize\bfseries LR & \color{arCyan}\scriptsize\bfseries TIME \\[0.25em]
+          \color{arText}v3 & 24{,}000 & 3{,}000 & 5e-5   & 5h53m \\
+          \color{arText}v4 & 56{,}000 & 2{,}300 & 1.7e-5 & 3h44m \\
+          \rowcolor{arPanel2}
+          \color{arCyan2}\bfseries v5 & \color{arText}\bfseries 16{,}000 &
+            \color{arText}\bfseries 1{,}500 & \color{arText}\bfseries 1e-5 &
+            \color{arText}\bfseries 2h22m \\
+          \color{arText}v6 &  8{,}000 &   800 & 7e-6   & 1h18m \\[0.4em]
+          \color{arMuted}total & & & & \color{arText}\bfseries $\sim$13h \\
+        \end{tabular}\\[0.9em]
+        \faint{One epoch per run, batch 8, cosine schedule, RTX 3090.}
+      \end{panel}
+    \end{column}
+  \end{columns}
+
+  \vspace{1.0em}
+  \faint{Only the routing policy is fine-tuned. The orchestrator stays off the shelf.}
 \end{frame}
 
 \end{document}
