@@ -802,8 +802,11 @@ In priority order:
 
 \section{Runtime Contract}
 
-The selected adapter is \path{outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5}, with the
-stable operational alias \path{outputs/models/adaptiveroute-routing-policy-current}.
+The selected adapter is \path{adaptiveroute-qwen2_5-7b-lora-error20k-v5}, resolved locally under
+\path{outputs/models/} with the stable operational alias
+\path{outputs/models/adaptiveroute-routing-policy-current} and published as a repository release
+asset. Deployments should reference the alias rather than the versioned directory, so that promoting
+a future adapter does not require a configuration change.
 
 \begin{verbatim}
 driver message
@@ -824,6 +827,27 @@ route distance and vehicle loads, and the final route JSON.
 
 The results in this report are reproducible from the repository. This section states the entry
 points; operational detail lives in \path{README.md} and \path{docs/DEPLOYMENT.md}.
+
+\paragraph{Obtaining the trained adapter.}
+Model artifacts are excluded from version control. The selected LoRA adapter is distributed as a
+release asset of the project repository:
+
+\begin{verbatim}
+https://github.com/gcarvalho-DataAI/AdaptiveRoute/releases
+\end{verbatim}
+
+The asset contains only the adapter weights and their tokenizer configuration, which is a few
+hundred megabytes rather than the size of a full checkpoint --- this is the practical benefit of
+parameter-efficient fine-tuning. It is not runnable on its own: the frozen base model
+\path{Qwen/Qwen2.5-7B-Instruct} is fetched separately from Hugging Face and the adapter is applied on
+top of it at load time. Extract the asset under \path{outputs/models/} so that the paths used
+throughout this report resolve, or point
+\path{ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_ADAPTER_PATH} at wherever it was placed.
+
+Every path in this report can be substituted: the system runs without the adapter by setting
+\path{ADAPTIVEROUTE_ROUTING_POLICY_BACKEND=solver}, which uses Pyomo + HiGHS as the candidate
+generator. That configuration exercises the full workflow --- extraction, mutation, validation,
+repair, fallback --- without a GPU, and is what the test suite uses.
 
 \paragraph{Running the system.}
 The default Docker profile requires no GPU and no model weights. It starts the API, the frontend,
