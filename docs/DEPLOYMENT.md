@@ -50,6 +50,43 @@ Follow logs:
 ./scripts/docker_compose_cmd.sh logs -f api frontend mongo postgres
 ```
 
+## Running from VS Code
+
+The repository ships launch configurations and tasks so the common paths are one click away.
+
+### Launch configurations (Run and Debug)
+
+| Configuration | What it starts |
+|---|---|
+| `AdaptiveRoute: Agentic API` | Uvicorn on `127.0.0.1:8090` under the debugger, reading `.env`. |
+| `AdaptiveRoute: Agentic Demo (.env)` | The CLI replanning demo with a sample message. |
+| `AdaptiveRoute: LoRA Policy API` | Serves the trained adapter on port 8010. Requires the GPU stack. |
+| `AdaptiveRoute: Docker Full Stack` | Runs `docker_up.sh`, waits for the frontend, then opens the browser. |
+| `Frontend: Local Dev Server` | `npm run dev` in `frontend/`. Requires npm on the host. |
+
+Compound configurations combine these: `AdaptiveRoute: Backend + Agentic API` starts the local LLM
+backend alongside the API, and `AdaptiveRoute: Local Full Stack` adds the frontend dev server.
+
+### Tasks (Run Task)
+
+| Task | Purpose |
+|---|---|
+| `docker: up` / `docker: down` | Start and stop the default stack. |
+| `docker: logs` | Follow `api`, `frontend`, `mongo` and `postgres`. |
+| `docker: up gpu` | Start the GPU profile for in-process LoRA loading. |
+| `docker: smoke test` | Run `smoke_docker_stack.sh` against the running stack. |
+| `osrm: start routing profile` | Prepare OSRM data and start the `osrm` service. |
+| `osrm: stop routing profile` / `osrm: logs` | Stop it, or follow its logs. |
+| `tests: pytest` | Run the full suite. |
+| `rag: ingest docs` / `rag: query` | Index the documentation and query it. |
+| `local: free api port` | Stop the API container and fail loudly if port 8090 is still held. |
+
+`local: free api port` exists because the debugger and the Docker `api` container both bind 8090.
+Run it before `AdaptiveRoute: Agentic API` if the stack is up.
+
+Note that the launch configurations and several tasks assume a POSIX shell and Linux tooling
+(`xdg-open`, `ss`, `rg`). On Windows they need adjustment or WSL.
+
 ## OSRM Routing Profile
 
 The map service can use OSRM for road-distance matrices and road-snapped route geometry.
@@ -60,7 +97,12 @@ Prepare NYC data:
 ./scripts/prepare_osrm_nyc.sh
 ```
 
-From VS Code, you can also use the task `osrm: start routing profile` from the task palette. It runs the same preparation and starts the routing profile automatically.
+This downloads the New York extract and runs `osrm-extract`, `osrm-partition` and `osrm-customize` in
+throwaway containers. It is the slow step, and it is idempotent: if `data/osrm/new-york-latest.osrm`
+already exists the script exits immediately, and the download resumes if interrupted.
+
+From VS Code, the task `osrm: start routing profile` runs the same preparation and then starts the
+`osrm` service. Companion tasks `osrm: stop routing profile` and `osrm: logs` are also available.
 
 Start with the routing profile:
 
@@ -75,6 +117,28 @@ Relevant variables:
 ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm
 ADAPTIVEROUTE_OSRM_BASE_URL=http://osrm:5000
 ADAPTIVEROUTE_OSRM_TIMEOUT_SECONDS=8
+```
+
+### Two things that catch people out
+
+**Starting the container is not enough.** The `osrm` service and the API's routing backend are
+separate switches. `osrm: start routing profile` brings the container up, but the API only calls it
+when `ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm`. The shipped `.env.docker.example` sets `fallback`, so
+after starting OSRM you must also set the variable and recreate the API container — otherwise the
+container runs unused.
+
+**The fallback is silent.** If OSRM is unreachable, or the backend is left on `fallback`, the system
+does not fail: it computes haversine distances and draws straight lines between stops. Nothing in
+the logs announces it. The reliable check is the map legend in the frontend, which shows `osrm` when
+road routing is active, or the geometry itself — real routes follow streets, fallback geometry does
+not.
+
+The default `./scripts/docker_up.sh` does **not** start OSRM. The service is declared under
+`profiles: ["routing"]` in `docker-compose.yml`, and Compose silently omits profiled services unless
+the profile is requested. To include it in the normal startup path:
+
+```bash
+COMPOSE_PROFILES=routing ADAPTIVEROUTE_MAP_ROUTER_BACKEND=osrm ./scripts/docker_up.sh
 ```
 
 If OSRM is unavailable, the system can use fallback geometry and haversine distances.
