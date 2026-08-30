@@ -195,7 +195,7 @@ Requirements:
 
 - NVIDIA GPU;
 - NVIDIA Container Toolkit;
-- trained adapter available under `outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5`;
+- trained adapter available under `models/adaptiveroute-routing-policy-lora-v5`;
 - model dependencies installed through the training dependency group.
 
 Relevant variables:
@@ -203,7 +203,7 @@ Relevant variables:
 ```text
 ADAPTIVEROUTE_ROUTING_POLICY_BACKEND=local
 ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_MODEL_ID=Qwen/Qwen2.5-7B-Instruct
-ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_ADAPTER_PATH=outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5
+ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_ADAPTER_PATH=models/adaptiveroute-routing-policy-lora-v5
 ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_4BIT=true
 ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_BF16=true
 ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_LOAD_AT_STARTUP=false

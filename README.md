@@ -137,8 +137,30 @@ ADAPTIVEROUTE_ROUTING_POLICY_MODEL=adaptiveroute-routing-policy
 # This is the preferred mode when a tester does not have access to your local API.
 ADAPTIVEROUTE_ROUTING_POLICY_BACKEND=local
 ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_MODEL_ID=Qwen/Qwen2.5-7B-Instruct
-ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_ADAPTER_PATH=outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5
+ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_ADAPTER_PATH=models/adaptiveroute-routing-policy-lora-v5
 ADAPTIVEROUTE_ROUTING_POLICY_LOCAL_LOAD_AT_STARTUP=false
+```
+
+The selected LoRA v5 adapter is distributed as a GitHub Release asset:
+
+```text
+https://github.com/gcarvalho-DataAI/AdaptiveRoute/releases/tag/model-routing-policy-lora-v5
+```
+
+Download and unpack it before using `ADAPTIVEROUTE_ROUTING_POLICY_BACKEND=local`:
+
+```bash
+mkdir -p models
+curl -L \
+  -o /tmp/adaptiveroute-routing-policy-lora-v5.tar.gz \
+  https://github.com/gcarvalho-DataAI/AdaptiveRoute/releases/download/model-routing-policy-lora-v5/adaptiveroute-routing-policy-lora-v5.tar.gz
+tar -xzf /tmp/adaptiveroute-routing-policy-lora-v5.tar.gz -C models
+```
+
+The resulting adapter directory should be:
+
+```text
+models/adaptiveroute-routing-policy-lora-v5
 ```
 
 To run the demo from `.env`:
@@ -296,7 +318,7 @@ cp .env.docker.gpu.example .env.docker.gpu
 ./scripts/docker_up_gpu.sh
 ```
 
-The GPU profile requires NVIDIA Container Toolkit and the trained adapter under `outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5`.
+The GPU profile requires NVIDIA Container Toolkit and the trained adapter under `models/adaptiveroute-routing-policy-lora-v5`.
 
 ## Troubleshooting
 
@@ -309,7 +331,7 @@ Mongo unavailable:
 LoRA adapter missing:
 
 - use `ADAPTIVEROUTE_ROUTING_POLICY_BACKEND=solver`;
-- or place the adapter at `outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5`;
+- or download `adaptiveroute-routing-policy-lora-v5.tar.gz` from the GitHub Release and unpack it under `models/adaptiveroute-routing-policy-lora-v5`;
 - then run with `uv run --group train ...`.
 
 GPU OOM:

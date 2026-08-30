@@ -117,6 +117,7 @@ const DEMO_LOCATIONS = {
 const ROUTE_COLORS = ["#27d6ff", "#8b5cf6", "#2df59d", "#ffb020"];
 const PAGE_SIZE = 6;
 const AUTH_STORAGE_KEY = "adaptiveroute.session";
+const CONVERSATION_STORAGE_KEY = "adaptiveroute.lastConversationId";
 
 const DAILY_ORDER_LOCATIONS = [
   ["Chelsea Market", "75 9th Ave, New York, NY", 40.7424, -74.006],
@@ -236,6 +237,7 @@ function App() {
   const [mapGeometry, setMapGeometry] = useState(null);
   const [driverSession, setDriverSession] = useState(null);
   const [driverProfileForm, setDriverProfileForm] = useState({ capacity: "", newPassword: "" });
+  const autoRestoreConversationDisabledRef = useRef(false);
   const [form, setForm] = useState({
     routeId: "ROUTE-001",
     driverId: "DRV-MANHATTAN-01",
@@ -342,6 +344,34 @@ function App() {
   }, [authSession?.role, authSession?.driverId, routes.length, selectedRoute?.id, selectedScenario?.id]);
 
   useEffect(() => {
+    if (autoRestoreConversationDisabledRef.current) return;
+    if (!authSession || conversationId || !conversations.length) return;
+    if (authSession.role === "admin" && activeView !== "chat") return;
+    if (authSession.role === "driver" && activeView !== "driverWorkspace") return;
+
+    const assignedRouteIds = new Set(
+      routes
+        .filter((route) => !authSession.driverId || route.driver_id === authSession.driverId)
+        .map((route) => route.id),
+    );
+    const visibleConversations = conversations.filter((conversation) => {
+      if (authSession.role !== "driver") return true;
+      const metadata = conversation.metadata || {};
+      const routeId = metadata.route_id || extractRouteIdFromText(conversation.title);
+      return metadata.driver_id === authSession.driverId || assignedRouteIds.has(routeId);
+    });
+    if (!visibleConversations.length) return;
+
+    const storedConversationId = readStoredConversationId();
+    const conversationToRestore =
+      visibleConversations.find((conversation) => conversation.id === storedConversationId)
+      || visibleConversations[0];
+    if (conversationToRestore?.id) {
+      selectConversation(conversationToRestore.id).catch(() => undefined);
+    }
+  }, [authSession?.role, authSession?.driverId, activeView, conversationId, conversations, routes]);
+
+  useEffect(() => {
     if (authSession?.role !== "admin" || !activeDashboardScenarioId) return;
     if (selectedScenario?.id !== activeDashboardScenarioId) {
       loadScenario(activeDashboardScenarioId, { silent: true }).catch(() => undefined);
@@ -405,9 +435,22 @@ function App() {
     }
   }
 
+  function clearRouteConversationState() {
+    removeStoredConversationId();
+    autoRestoreConversationDisabledRef.current = false;
+    setConversationId(null);
+    setMessages([]);
+    setContextWindow(null);
+    setAgenticResult(null);
+    setSelectedRoute(null);
+    setMapGeometry(null);
+    setMessage("");
+  }
+
   async function login({ username, password }) {
     try {
       setStatus({ text: "Signing in...", level: "info" });
+      clearRouteConversationState();
       const normalizedUsername = username.trim().toLowerCase();
       const normalizedPassword = password.trim();
       if (normalizedUsername === "admin@adaptiveroute.com" && normalizedPassword === "12345678") {
@@ -418,6 +461,7 @@ function App() {
           createdAt: new Date().toISOString(),
         };
         persistSession(session);
+        setDriverSession(null);
         setAuthSession(session);
         setActiveView("dashboard");
         setStatus({ text: `Signed in as ${session.displayName}`, level: "ok" });
@@ -447,6 +491,9 @@ function App() {
       if (body.routes?.[0]) {
         selectRoute(body.routes[0]);
         await loadScenario(body.routes[0].scenario_id, { silent: true });
+      } else {
+        setSelectedScenario(null);
+        setSelectedRoute(null);
       }
       setActiveView("driverWorkspace");
       setStatus({ text: `Signed in as ${session.displayName}`, level: "ok" });
@@ -459,6 +506,7 @@ function App() {
 
   function logout() {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    clearRouteConversationState();
     setAuthSession(null);
     setDriverSession(null);
     setActiveView("dashboard");
@@ -904,6 +952,8 @@ function App() {
         }),
       });
       setConversationId(body.conversation_id);
+      persistConversationId(body.conversation_id);
+      autoRestoreConversationDisabledRef.current = false;
       setAgenticResult(body.agentic_result);
       setContextWindow(body.context_window);
       if (body.operational_route) selectRoute(body.operational_route);
@@ -979,6 +1029,8 @@ function App() {
   async function selectConversation(targetConversationId) {
     try {
       setConversationId(targetConversationId);
+      persistConversationId(targetConversationId);
+      autoRestoreConversationDisabledRef.current = false;
       setStatus({ text: `Loading conversation ${targetConversationId.slice(0, 8)}...`, level: "info" });
       const conversation = conversations.find((item) => item.id === targetConversationId);
       const routeId = conversation?.metadata?.route_id || extractRouteIdFromText(conversation?.title);
@@ -995,6 +1047,8 @@ function App() {
   }
 
   async function startNewConversation() {
+    autoRestoreConversationDisabledRef.current = true;
+    removeStoredConversationId();
     setConversationId(null);
     setMessages([]);
     setContextWindow(null);
@@ -1014,6 +1068,7 @@ function App() {
       await request(`/v1/conversations/${targetConversationId}`, { method: "DELETE" });
       setConversations((items) => items.filter((conversation) => conversation.id !== targetConversationId));
       if (conversationId === targetConversationId) {
+        removeStoredConversationId();
         setConversationId(null);
         setMessages([]);
         setContextWindow(null);
@@ -1237,6 +1292,7 @@ function App() {
         {isDriver && activeView === "driverWorkspace" && (
           <DriverChatView
             authSession={authSession}
+            driverSession={driverSession}
             drivers={drivers}
             routes={routes}
             selectedRoute={selectedRoute}
@@ -2038,6 +2094,7 @@ function DriverCreationWizard({ form, updateForm, actions }) {
 
 function DriverChatView({
   authSession,
+  driverSession,
   drivers,
   routes,
   selectedRoute,
@@ -2054,11 +2111,15 @@ function DriverChatView({
   selectRoute,
 }) {
   const driver = drivers.find((item) => item.id === authSession.driverId) || null;
-  const assignedRoutes = routes.filter((route) => route.driver_id === authSession.driverId);
-  const routeForView = selectedRoute && assignedRoutes.some((route) => route.id === selectedRoute.id)
+  const assignedRoutes = uniqueRoutesByIdentity([
+    ...(driverSession?.routes || []),
+    ...routes.filter((route) => route.driver_id === authSession.driverId),
+    ...(selectedRoute?.driver_id === authSession.driverId ? [selectedRoute] : []),
+  ]);
+  const routeForView = selectedRoute && assignedRoutes.some((route) => sameOperationalRoute(route, selectedRoute))
     ? selectedRoute
     : assignedRoutes[0] || null;
-  const generatedPlan = extractGeneratedPlan(agenticResult) || routeForView?.current_plan || currentPlan;
+  const generatedPlan = routeForView ? extractGeneratedPlan(agenticResult) || routeForView.current_plan : null;
   const displayPlan = filterPlanForOperationalRoute(generatedPlan, routeForView);
   const displayGeometry = filterGeometryForPlan(mapGeometry, displayPlan);
   const generatedValidation = extractGeneratedValidation(agenticResult);
@@ -2085,15 +2146,20 @@ function DriverChatView({
             <h2>{routeForView ? routeForView.id : "No route assigned"}</h2>
             <p>{driver?.name || authSession.displayName} · report blocks, delays, unavailable customers or route questions.</p>
           </div>
-          {routeAction && (
-            <button
-              type="button"
-              className="primary"
-              onClick={() => actions.updateDriverRouteStatus(routeForView.id, routeAction.nextStatus)}
-            >
-              {routeAction.label}
+          <div className="driver-chat-header-actions">
+            <button type="button" className="secondary" onClick={actions.startNewConversation}>
+              <MessageSquareText size={16} /> New conversation
             </button>
-          )}
+            {routeAction && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => actions.updateDriverRouteStatus(routeForView.id, routeAction.nextStatus)}
+              >
+                {routeAction.label}
+              </button>
+            )}
+          </div>
         </header>
 
         {routeForView && (
@@ -2145,6 +2211,9 @@ function DriverChatView({
           <div className="chat-composer-actions">
             <button className="primary" disabled={!routeForView || !message.trim()} onClick={sendDriverMessage}>
               <Send size={16} /> Send
+            </button>
+            <button className="secondary" type="button" onClick={actions.startNewConversation}>
+              New
             </button>
             <button className="secondary" disabled={!conversationId} onClick={actions.sendFollowUp}>Follow-up</button>
           </div>
@@ -2714,6 +2783,7 @@ function RouteMap({ plan, route, geometry, locations }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapResizeHandler />
         <FitBounds points={fitPoints} fitKey={fitKey} recenterSignal={recenterSignal} />
         {routeLines.map((line, index) => (
           <Polyline
@@ -2765,6 +2835,25 @@ function RouteMap({ plan, route, geometry, locations }) {
       </button>
     </div>
   );
+}
+
+function MapResizeHandler() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    const invalidate = () => {
+      window.requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+    };
+    invalidate();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(invalidate) : null;
+    observer?.observe(container);
+    window.addEventListener("resize", invalidate);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", invalidate);
+    };
+  }, [map]);
+  return null;
 }
 
 function FitBounds({ points, fitKey, recenterSignal }) {
@@ -3235,6 +3324,23 @@ function persistSession(session) {
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
 }
 
+function readStoredConversationId() {
+  try {
+    return window.localStorage.getItem(CONVERSATION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistConversationId(conversationId) {
+  if (!conversationId) return;
+  window.localStorage.setItem(CONVERSATION_STORAGE_KEY, conversationId);
+}
+
+function removeStoredConversationId() {
+  window.localStorage.removeItem(CONVERSATION_STORAGE_KEY);
+}
+
 function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -3332,6 +3438,27 @@ function extractGeneratedPlan(result) {
 function extractGeneratedValidation(result) {
   if (!result) return null;
   return result.final_validation || result.candidate?.validation || result.validation || null;
+}
+
+function operationalRouteKey(route) {
+  if (!route) return "";
+  return [route.id || "", route.scenario_id || "", route.driver_id || ""].join("::");
+}
+
+function sameOperationalRoute(left, right) {
+  return Boolean(left && right && operationalRouteKey(left) === operationalRouteKey(right));
+}
+
+function uniqueRoutesByIdentity(routeRecords = []) {
+  const seen = new Set();
+  const unique = [];
+  routeRecords.filter(Boolean).forEach((route) => {
+    const key = operationalRouteKey(route);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    unique.push(route);
+  });
+  return unique;
 }
 
 function filterPlanForOperationalRoute(plan, operationalRoute) {

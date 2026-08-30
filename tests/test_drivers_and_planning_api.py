@@ -80,6 +80,64 @@ def test_demo_planning_releases_demo_drivers_from_previous_runs(monkeypatch) -> 
     clear_dependency_caches()
 
 
+def test_demo_planning_releases_partially_busy_demo_fleet(monkeypatch) -> None:
+    monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
+    monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")
+    clear_dependency_caches()
+    client = TestClient(create_app())
+
+    demo_drivers = [
+        ("DRV-MANHATTAN-01", "Maya Chen", "VAN-MH-014", 22),
+        ("DRV-MANHATTAN-02", "Ethan Brooks", "VAN-MH-027", 24),
+        ("DRV-BROOKLYN-01", "Sofia Ramirez", "VAN-BK-033", 20),
+        ("DRV-QUEENS-01", "Noah Patel", "VAN-QN-018", 26),
+        ("DRV-BROOKLYN-02", "Olivia Grant", "VAN-BK-041", 21),
+        ("DRV-NJ-01", "Lucas Bennett", "VAN-NJ-012", 23),
+    ]
+    for driver_id, name, vehicle_id, capacity in demo_drivers:
+        response = client.post(
+            "/v1/drivers",
+            json={
+                "id": driver_id,
+                "name": name,
+                "vehicle_id": vehicle_id,
+                "capacity": capacity,
+                "metadata": {"username": driver_id.lower(), "temporary_password": "demo"},
+            },
+        )
+        assert response.status_code == 200
+
+    drivers = client.get("/v1/drivers").json()
+    assert len(drivers) == len(demo_drivers)
+    for driver in drivers[:2]:
+        update_response = client.put(
+            f"/v1/drivers/{driver['id']}",
+            json={
+                "name": driver["name"],
+                "vehicle_id": driver["vehicle_id"],
+                "capacity": driver["capacity"],
+                "status": "on_route",
+                "region": driver["region"],
+                "shift_start": driver["shift_start"],
+                "shift_end": driver["shift_end"],
+                "metadata": driver["metadata"],
+            },
+        )
+        assert update_response.status_code == 200
+
+    plan_response = client.post(
+        "/v1/planning/daily",
+        json={"scenario_id": "demo-cvrp-8", "route_prefix": "PARTIAL-DEMO-ROUTE", "include_demo_drivers": True},
+    )
+
+    assert plan_response.status_code == 200
+    body = plan_response.json()
+    assert body["available_driver_count"] == len(drivers)
+    assert body["created_route_count"] == 2
+
+    clear_dependency_caches()
+
+
 def test_async_planning_job_requires_persistent_repository(monkeypatch) -> None:
     monkeypatch.setenv("ADAPTIVEROUTE_MEMORY_BACKEND", "memory")
     monkeypatch.setenv("ADAPTIVEROUTE_MAP_ROUTER_BACKEND", "fallback")

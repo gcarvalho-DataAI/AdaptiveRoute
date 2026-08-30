@@ -41,10 +41,10 @@ class DailyPlanningService:
 
         drivers = self._driver_service.list_drivers()
         if include_demo_drivers:
+            self._driver_service.release_demo_drivers_for_planning()
             drivers = self._driver_service.ensure_demo_drivers()
         available_drivers = [driver for driver in drivers if driver.status == "available"]
-        if include_demo_drivers and not available_drivers:
-            self._driver_service.release_demo_drivers_for_planning()
+        if include_demo_drivers:
             drivers = self._driver_service.list_drivers()
             available_drivers = [driver for driver in drivers if driver.status == "available"]
         if not available_drivers:

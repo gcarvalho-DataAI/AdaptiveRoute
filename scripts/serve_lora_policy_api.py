@@ -184,7 +184,7 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8010)
     parser.add_argument("--model-id", default="Qwen/Qwen2.5-7B-Instruct")
-    parser.add_argument("--adapter-path", default="outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5")
+    parser.add_argument("--adapter-path", default="models/adaptiveroute-routing-policy-lora-v5")
     parser.add_argument("--served-model-name", default="adaptiveroute-routing-policy")
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--no-4bit", action="store_true")
