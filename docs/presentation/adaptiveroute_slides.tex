@@ -99,7 +99,7 @@
 \setbeamertemplate{footline}{%
   \hbox{\begin{beamercolorbox}[wd=\paperwidth,ht=2.6ex,dp=1.6ex,leftskip=1.5em,rightskip=1.5em]{}%
     {\color{arFaint}\scriptsize\bfseries AdaptiveRoute}%
-    \hfill{\color{arMuted}\scriptsize\bfseries\insertframenumber\,/\,18}%
+    \hfill{\color{arMuted}\scriptsize\bfseries\insertframenumber\,/\,19}%
   \end{beamercolorbox}}%
 }
 
@@ -417,6 +417,57 @@
   cannot survive. Second, failure is a prompt rather than an error: the specific violations
   (``capacity\_violation: load 45, capacity 40'') are fed back as a structured correction prompt,
   three attempts, then the solver takes over.}
+\end{frame}
+
+% ================================================================ 8 conversational layer
+\begin{frame}
+  \frametitle{What makes the conversation work}
+  \framesubtitle{AdaptiveRoute \textperiodcentered\ The conversational layer}
+
+  \vspace{0.7em}
+  \begin{columns}[T]
+    \begin{column}{0.315\linewidth}
+      \begin{panel}{\linewidth}
+        \plabel{Memory}\\[0.5em]
+        \ptitle{Context window}\\[0.45em]
+        \muted{\small A bounded summary per conversation: last event, last plan, open
+        constraints.}\\[0.6em]
+        \faint{The driver never repeats themselves.}
+      \end{panel}
+    \end{column}
+    \begin{column}{0.315\linewidth}
+      \begin{panel}{\linewidth}
+        \plabel{Retrieval}\\[0.5em]
+        \ptitle{Documentation in pgvector}\\[0.45em]
+        \muted{\small Project docs chunked and embedded; cosine search returns supporting
+        passages.}\\[0.6em]
+        \faint{Answers cite sources, not recall.}
+      \end{panel}
+    \end{column}
+    \begin{column}{0.315\linewidth}
+      \begin{panelglow}{\linewidth}
+        \plabel{Grounding}\\[0.5em]
+        \ptitle{Facts before the model}\\[0.45em]
+        \muted{\small Route facts are computed from the stored plan, then handed to the
+        model.}\\[0.6em]
+        \faint{The answer cannot drift from the plan.}
+      \end{panelglow}
+    \end{column}
+  \end{columns}
+
+  \vspace{1.1em}
+  \centering
+  \small Questions are answered from the stored plan.
+  \cy{Only disruptions enter the replanning workflow.}
+
+  \note{This is the layer that makes a chat interface viable rather than a demo. The context window
+  is rebuilt after every turn: previous summary carried forward, extended with the new event, the
+  validation outcome and the replanning impact, then truncated to a budget. Retrieval indexes the
+  project documentation into Postgres with pgvector and searches by cosine distance. And the Q\&A
+  pipeline computes route facts from persisted data before calling the model, so the answer is
+  anchored to the actual plan. The distinction at the bottom matters: a question is answered from
+  stored state, but anything implying a route change is routed into the workflow where the
+  validation contract applies.}
 \end{frame}
 
 % ================================================================ 9 product
@@ -747,7 +798,7 @@
           Dropout       & \color{arText}\bfseries 0.05 \\
           Quantisation  & \color{arText}\bfseries 4-bit NF4 \\
           Compute dtype & \color{arText}\bfseries bfloat16 \\
-          Epochs        & \color{arText}\bfseries 1 \\
+          Epochs        & \color{arText}\bfseries 1 \\[0.5em]
         \end{tabular}
       \end{panel}
     \end{column}

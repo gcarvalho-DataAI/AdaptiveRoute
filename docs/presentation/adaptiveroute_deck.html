@@ -571,6 +571,47 @@
     prompt, three attempts, then the solver takes over.</div>
   </section>
 
+  <!-- 9 - conversational layer -->
+  <section class="slide">
+    <div class="eyebrow">AdaptiveRoute &middot; The conversational layer</div>
+    <h1>What makes the conversation work</h1>
+    <div class="body">
+      <div class="cols c3">
+        <div class="panel">
+          <span class="panel-label">Memory</span>
+          <h3>Context window</h3>
+          <p class="muted" style="margin:0 0 .8em">A bounded summary per conversation: last event,
+          last plan, open constraints.</p>
+          <p class="faint" style="margin:0">The driver never repeats themselves.</p>
+        </div>
+        <div class="panel">
+          <span class="panel-label">Retrieval</span>
+          <h3>Documentation in pgvector</h3>
+          <p class="muted" style="margin:0 0 .8em">Project docs chunked and embedded; cosine search
+          returns supporting passages.</p>
+          <p class="faint" style="margin:0">Answers cite sources, not recall.</p>
+        </div>
+        <div class="panel glow">
+          <span class="panel-label">Grounding</span>
+          <h3>Facts before the model</h3>
+          <p class="muted" style="margin:0 0 .8em">Route facts are computed from the stored plan,
+          then handed to the model.</p>
+          <p class="faint" style="margin:0">The answer cannot drift from the plan.</p>
+        </div>
+      </div>
+      <p style="margin:1.5em 0 0;text-align:center">Questions are answered from the stored plan.
+      <span class="cy">Only disruptions enter the replanning workflow.</span></p>
+    </div>
+    <div class="notes">This is the layer that makes a chat interface viable rather than a demo. The
+    context window is rebuilt after every turn: previous summary carried forward, extended with the
+    new event, the validation outcome and the replanning impact, then truncated to a budget.
+    Retrieval indexes the project documentation into Postgres with pgvector and searches by cosine
+    distance. And the Q&amp;A pipeline computes route facts from persisted data before calling the
+    model, so the answer is anchored to the actual plan. The distinction at the bottom matters: a
+    question is answered from stored state, but anything implying a route change is routed into the
+    workflow where the validation contract applies.</div>
+  </section>
+
   <!-- 9 · product -->
   <section class="slide shot-slide">
     <div class="eyebrow">AdaptiveRoute · The product</div>
@@ -867,7 +908,7 @@
   <div class="prog" id="prog"></div>
   <div class="foot">
     <span>AdaptiveRoute</span>
-    <span class="n" id="num">1 / 18</span>
+    <span class="n" id="num">1 / 19</span>
   </div>
 </div>
 

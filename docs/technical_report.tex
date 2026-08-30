@@ -14,158 +14,516 @@
 \newcommand{\midrule}{\hline}
 \newcommand{\bottomrule}{\hline}
 
-\title{Technical Report: Fine-Tuning a Route Replanning Model}
-\author{AdaptiveRoute POC}
-\date{August 25, 2026}
+\title{Technical Report: AdaptiveRoute\\
+\large Agentic Route Replanning with a Fine-Tuned Policy and an Exact Solver}
+\author{Gabriel Carvalho Domingos da Conceição}
+\date{August 29, 2026}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-This report documents the design, training, evaluation, and final selection of the specialized route replanning model used in the AdaptiveRoute proof of concept. The approach combines a prescriptive optimization layer, implemented with Pyomo and HiGHS, with supervised fine-tuning of a neural route-candidate policy. The fine-tuned model is not treated as a mathematical optimizer and does not replace the solver. It is used as a fast structured candidate generator, protected by deterministic validation, repair logic, and a Pyomo + HiGHS fallback. The selected final version is the LoRA adapter at \path{outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5}, based on \path{Qwen/Qwen2.5-7B-Instruct}.
+This report documents the design, implementation and evaluation of AdaptiveRoute, a system for
+replanning last-mile delivery routes when operational disruptions occur mid-execution. The system
+converts a driver's natural-language report --- a blocked road, an unavailable customer --- into a
+validated route plan. It combines three components with strictly separated responsibilities: a
+general-purpose language model that interprets the message and orchestrates the workflow, a
+fine-tuned 7B policy that proposes route candidates, and an exact Pyomo + HiGHS optimizer that
+remains the sole authority on feasibility. No plan reaches a driver without passing deterministic
+validation, regardless of which component produced it. Around this core the system carries the
+supporting AI-engineering layer that makes a conversational interface viable: a bounded rolling
+context window, a vector-backed retrieval layer over project documentation, and a grounded route
+question-answering pipeline. The report covers the architecture, the agentic workflow, the validation
+contract, these components, the supervised fine-tuning of the routing policy, and the measured limits
+of the resulting system.
 \end{abstract}
+
+\tableofcontents
 
 \section{Executive Summary}
 
-The fine-tuning track produced a specialized model for generating JSON route replanning candidates under operational disruptions. The final selected model, referred to as v5, reached a 94.4\% feasible-candidate rate on a fixed 1,000-example benchmark sampled from \path{data/training_curriculum_100k/sft_test.jsonl}. It improved over the earlier v3 and v4 checkpoints and outperformed the later v6 continuation, which slightly regressed.
+AdaptiveRoute addresses a gap that is neither an optimization problem nor a language problem, but
+the handoff between them. A delivery route optimized overnight becomes invalid during execution;
+re-running the optimizer requires someone to translate a disruption into a formal model, and asking
+a language model directly produces plausible routes that violate capacity or skip customers.
 
-The key architectural decision is to keep optimization and learning separated:
-
-\begin{itemize}
-  \item Pyomo + HiGHS is the prescriptive source of truth.
-  \item The fine-tuned LLM is a route-candidate policy.
-  \item Deterministic validation decides whether a candidate can be accepted.
-  \item Repair and solver fallback remain mandatory.
-\end{itemize}
-
-This makes the system suitable for an agentic AI architecture where a reasoning-capable orchestrator can delegate route candidate generation to the fine-tuned specialist model.
-
-\section{Project Objective}
-
-The goal of the fine-tuning module was to train a specialist model that receives:
+The system closes that handoff with a three-layer architecture:
 
 \begin{itemize}
-  \item a structured routing scenario;
-  \item an existing route plan;
-  \item an operational event, such as a blocked arc or unavailable customer;
-  \item vehicle capacities, customer demands, and route constraints;
+  \item a general-purpose LLM interprets the driver's message and extracts a structured operational
+        event;
+  \item a fine-tuned LoRA policy proposes a route candidate in approximately 1.7 seconds;
+  \item deterministic validation accepts, repairs, or rejects that candidate, with Pyomo + HiGHS as
+        the fallback authority.
 \end{itemize}
 
-and returns a replanned route candidate in a strict JSON format.
+The fine-tuned routing policy, referred to as v5, reaches a 94.4\% feasible-candidate rate on a fixed
+1,000-example benchmark. The remaining 5.6\% is not a correctness risk, because the architecture
+never depends on the model being right: invalid candidates are repaired or replaced by the solver.
+The measured operating boundary of the policy is 8--9 customers per scenario; beyond that the
+cascade falls through to the solver on every request.
 
-The proof of concept focuses on synthetic CVRP instances, primarily with 8 customers and 2 vehicles. The target behavior is operational feasibility, not proof of optimality. A feasible generated plan is useful only if it passes deterministic validation.
+The selected adapter is
+\path{outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5}, based on
+\path{Qwen/Qwen2.5-7B-Instruct}.
+
+\section{Project Objective and Scope}
+
+The objective was to build a working end-to-end system, not a demonstration of isolated components.
+The scope covers:
+
+\begin{itemize}
+  \item exact CVRP planning over ingested orders;
+  \item natural-language reporting of operational disruptions;
+  \item agentic replanning with validation, repair and fallback;
+  \item conversation memory and route question answering;
+  \item an operational console for administrators and a scoped workspace for drivers.
+\end{itemize}
+
+The routing scenarios are synthetic CVRP instances, generated primarily with 8 customers and 2
+vehicles. The target behaviour of the learned component is operational feasibility, not proof of
+optimality: a generated plan is useful only if it passes deterministic validation.
 
 \section{Theoretical Foundation}
 
 \subsection{Vehicle Routing and CVRP}
 
-The Vehicle Routing Problem was introduced by Dantzig and Ramser in the classical truck dispatching formulation \cite{dantzig1959}. In the Capacitated Vehicle Routing Problem, a fleet of vehicles with limited capacity must serve a set of customers from a depot while minimizing total travel cost or distance.
+The Vehicle Routing Problem was introduced by Dantzig and Ramser in the classical truck dispatching
+formulation \cite{dantzig1959}. In the Capacitated Vehicle Routing Problem, a fleet of vehicles with
+limited capacity must serve a set of customers from a depot while minimizing total travel distance.
 
-CVRP is a combinatorial optimization problem. For realistic instances, exact optimization can become expensive, and practical systems often combine mathematical programming, heuristics, and learned policies. In this project, the learned model is not positioned as an exact solver. It is trained to imitate high-quality prescriptive decisions generated by a mathematical optimization engine.
+CVRP is NP-hard. For realistic instances, exact optimization becomes expensive, and practical
+systems combine mathematical programming, heuristics and learned policies.
 
-\subsection{Prescriptive Optimization}
+\subsection{Prescriptive Optimization and Subtour Elimination}
 
-The prescriptive layer answers the question: given a scenario and a disruption, what route plan should be executed? Pyomo was selected because it allows explicit algebraic modeling in Python and keeps the optimization model inspectable, testable, and version-controlled \cite{pyomo}. HiGHS was selected as the open-source solver because it provides high-performance optimization routines for LP, MIP, and QP problems and has a Python interface suitable for local experimentation \cite{highs}.
+The prescriptive layer answers: given a scenario and a disruption, what route plan should be
+executed? Pyomo was selected because it allows explicit algebraic modeling in Python and keeps the
+optimization model inspectable, testable and version-controlled \cite{pyomo}. HiGHS was selected as
+the open-source solver for LP and MIP problems, with a Python interface suitable for local
+experimentation \cite{highs}.
 
-This combination supports the intended technical message: the route optimization model is explicit and auditable, rather than hidden inside a black-box model.
+Subtour elimination uses the Miller--Tucker--Zemlin formulation \cite{mtz}. MTZ is compact and
+readable, requiring only $O(n^2)$ additional constraints, which suits a system where the model is
+meant to be auditable. Its known weakness is a loose linear relaxation compared with
+Dantzig--Fulkerson--Johnson cut families, which becomes the binding constraint on scalability as
+instance size grows. This trade-off is revisited in Section~\ref{sec:limitations}.
 
-\subsection{Transformer-Based Language Models}
+\subsection{Learning for Combinatorial Optimization}
 
-The base model is a causal Transformer model \cite{vaswani2017}. The attention mechanism is useful for this task because the model must condition route decisions on relationships among customers, vehicles, capacity constraints, blocked arcs, and the previous plan.
+A substantial literature asks whether neural networks can solve routing problems directly. Pointer
+Networks introduced an attention-based architecture able to output permutations over variable-length
+inputs, and demonstrated it on TSP \cite{pointer}. Kool, van Hoof and Welling extended this line with
+an attention model trained by reinforcement learning that produces high-quality tours for TSP and
+VRP without a solver in the loop \cite{kool2019}.
 
-An instruction-tuned model was preferred because the task is contract-driven: the model must follow a structured prompt and produce valid JSON.
+These approaches replace the optimizer. They achieve competitive tour lengths but provide no
+feasibility guarantee, which is disqualifying when a violated capacity constraint means a vehicle
+that physically cannot carry its load.
+
+Bengio, Lodi and Prouvost survey the alternative framing, in which machine learning assists rather
+than replaces exact methods --- learning to guide branching, to select heuristics, or to produce
+warm starts \cite{bengio2021}. AdaptiveRoute adopts that hybrid stance and applies it at a different
+level: the learned component is a fine-tuned language model operating on a natural-language
+interface, and the exact solver retains final authority over every plan. The contribution is not a
+better tour-construction network; it is an architecture in which an unreliable fast component can be
+used safely.
+
+\subsection{Transformer Language Models}
+
+The base model is a causal Transformer \cite{vaswani2017}. The attention mechanism suits this task
+because route decisions must be conditioned on relationships among customers, vehicles, capacity
+constraints, blocked arcs and the previous plan. An instruction-tuned model was preferred because
+the task is contract-driven: the model must follow a structured prompt and emit valid JSON.
 
 \subsection{LoRA and QLoRA}
 
-Full fine-tuning of a 7B-parameter model was not practical for the local hardware target. Instead, the project used parameter-efficient fine-tuning with LoRA. LoRA freezes the original pretrained weights and injects trainable low-rank matrices into selected layers, drastically reducing the number of trainable parameters \cite{lora}.
+Full fine-tuning of a 7B-parameter model was not practical on the available hardware. The project
+used parameter-efficient fine-tuning with LoRA, which freezes the pretrained weights and injects
+trainable low-rank matrices into selected layers \cite{lora}. Training also used QLoRA-style 4-bit
+loading, keeping the base model quantized with NF4 and double quantization while adapter weights are
+updated \cite{qlora}. The base \path{Qwen/Qwen2.5-7B-Instruct} model remained frozen throughout.
 
-The training setup also used QLoRA-style 4-bit loading. QLoRA enables fine-tuning large language models by keeping the base model quantized while training LoRA adapters, using techniques such as NF4 quantization and double quantization \cite{qlora}.
+\section{System Architecture}
 
-Therefore, the full base model was not trained. The base \path{Qwen/Qwen2.5-7B-Instruct} model remained frozen; only LoRA adapter weights were updated.
+\subsection{Component Overview}
 
-\section{Selected Base Model}
+\begin{verbatim}
+Admin / Driver browser
+        |
+        v
+React frontend  (admin console, driver workspace, Leaflet maps)
+        |
+        v
+FastAPI backend
+        |
+        +--> scenario, driver, route and planning APIs
+        +--> agentic routing API
+        +--> conversation memory API
+        +--> RAG API
+        +--> map geometry API
+        |
+        +--> MongoDB          conversations, messages, context windows,
+        |                     agent runs, drivers, routes, planning jobs
+        +--> PostgreSQL       document chunks and embeddings (pgvector)
+        +--> Pyomo + HiGHS    deterministic CVRP solve, fallback authority
+        +--> OSRM             road distance matrix and route geometry
+        +--> OpenAI-compatible LLM API
+\end{verbatim}
 
-The selected base model was \path{Qwen/Qwen2.5-7B-Instruct}. The selection criteria were practical:
+Three interfaces are declared as Python protocols and are swappable at runtime by environment
+variable: the routing engine, the route-candidate generator and the event extractor. The repository
+layer provides in-memory implementations, so the full test suite runs without a GPU, a database or a
+model server.
 
-\begin{itemize}
-  \item open-weight model suitable for local experimentation;
-  \item approximately 7.61B parameters;
-  \item 28 Transformer layers;
-  \item modern architecture features, including RoPE, SwiGLU, RMSNorm, and Grouped Query Attention;
-  \item strong instruction-following behavior for structured output;
-  \item compatibility with Hugging Face Transformers, TRL, PEFT, and bitsandbytes.
-\end{itemize}
+\subsection{Model Responsibilities}
+\label{sec:models}
 
-The model is intended to serve as a specialized routing policy. It should not be the same model responsible for user-facing reasoning. In the planned agentic AI architecture, a stronger reasoning model can handle conversation, orchestration, and explanation, while the fine-tuned model serves route-specialist agents or tools.
+The system runs two language models with disjoint responsibilities. This separation is deliberate
+and is one of the central design decisions.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Capability & Model or engine & Role \\
+\midrule
+Exact planning & Pyomo + HiGHS & Prescriptive source of truth. \\
+Interaction and orchestration & Qwen2.5-Coder-32B & Event extraction, route Q\&A, explanation. \\
+Route candidate & Qwen2.5-7B + LoRA v5 & Fast approximate replan under disruption. \\
+Guardrails & Deterministic validator & Feasibility authority. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The rationale is right-sizing. Interpreting an ambiguous driver message is an open-ended language
+task that benefits from breadth, so it is handled by a large general model used off the shelf, at
+temperature 0.1. Emitting a valid route sequence is a narrow, structured task that benefits from
+precision and latency, so it is handled by a small fine-tuned specialist at temperature 0. The
+specialist sits on the hot path, which means 32B inference is not paid for every candidate.
+
+The two are configured independently through separate base URLs, model names and temperatures
+(\path{ADAPTIVEROUTE_ORCHESTRATOR_*} and \path{ADAPTIVEROUTE_ROUTING_POLICY_*}). The 32B model never
+produces a route; the 7B model never addresses a driver.
+
+\subsection{Storage and Deployment}
+
+MongoDB stores document-shaped operational state: conversations, messages, rolling context windows,
+agent traces, drivers, operational routes and planning jobs. PostgreSQL with pgvector stores
+retrieval chunks and embeddings for documentation-based RAG.
+
+The Docker stack contains the FastAPI backend, the React frontend, MongoDB, PostgreSQL, an optional
+OSRM service for road distances and geometry \cite{osrm}, and an optional GPU profile that loads the
+LoRA adapter directly in the API process. The OpenAI-compatible LLM API runs outside the Compose
+stack and is reached through \path{host.docker.internal}.
 
 \section{Prescriptive Optimization Component}
 
-The prescriptive engine was implemented with Pyomo + HiGHS. It has three roles:
+The Pyomo + HiGHS engine has three roles: it generates supervised labels for training, it provides
+the fallback plan when a candidate cannot be accepted, and it is the reference against which the
+learned policy is measured.
 
-\begin{enumerate}
-  \item solve synthetic CVRP instances to generate supervised labels;
-  \item validate whether LLM-generated candidates satisfy deterministic constraints;
-  \item provide fallback plans when generated candidates are invalid or missing.
-\end{enumerate}
+Let $N$ be the node set, $C \subset N$ the customers, $K$ the vehicles, $d_{ij}$ the travel distance
+on arc $(i,j)$, $q_j$ the demand of customer $j$, $Q_k$ the capacity of vehicle $k$, and $B$ the set
+of blocked arcs. Let $x_{ijk} \in \{0,1\}$ indicate that vehicle $k$ traverses arc $(i,j)$, and
+$y_{jk} \in \{0,1\}$ that vehicle $k$ serves customer $j$.
 
-A simplified CVRP objective is:
+The objective minimizes total distance:
 
 \[
-\min \sum_{k \in K} \sum_{i \in N} \sum_{j \in N, j \neq i} d_{ij} x_{ijk}
+\min \sum_{k \in K} \sum_{i \in N} \sum_{j \in N, j \neq i} d_{ij}\, x_{ijk}
 \]
 
-subject to customer coverage:
+Each customer is served exactly once:
 
 \[
-\sum_{k \in K} \sum_{i \in N, i \neq j} x_{ijk} = 1
+\sum_{k \in K} y_{jk} = 1
 \quad \forall j \in C
 \]
 
-capacity:
+Assignment is linked to routing through degree constraints, so that a vehicle enters and leaves a
+customer if and only if it serves that customer:
 
 \[
-\sum_{j \in C} q_j y_{jk} \leq Q_k
+\sum_{i \in N, i \neq j} x_{ijk} = y_{jk},
+\qquad
+\sum_{i \in N, i \neq j} x_{jik} = y_{jk}
+\quad \forall j \in C, \forall k \in K
+\]
+
+Capacity is then enforced on the assignment variables:
+
+\[
+\sum_{j \in C} q_j\, y_{jk} \leq Q_k
 \quad \forall k \in K
 \]
 
-flow conservation:
-
-\[
-\sum_{j \in N, j \neq i} x_{ijk}
-=
-\sum_{j \in N, j \neq i} x_{jik}
-\quad \forall i \in N, \forall k \in K
-\]
-
-and blocked-arc exclusion:
+Blocked arcs are excluded:
 
 \[
 x_{ijk} = 0
 \quad \forall (i,j) \in B, \forall k \in K
 \]
 
-where $N$ is the node set, $C$ is the customer set, $K$ is the vehicle set, $d_{ij}$ is travel distance, $q_j$ is customer demand, $Q_k$ is vehicle capacity, $B$ is the blocked-arc set, $x_{ijk}$ indicates whether vehicle $k$ traverses arc $(i,j)$, and $y_{jk}$ indicates whether vehicle $k$ serves customer $j$.
+Subtours are eliminated with MTZ ordering variables $u_{jk}$:
 
-The implementation also includes depot start/end rules, route continuity, subtour elimination, and event-specific constraints.
+\[
+u_{ik} - u_{jk} + |C|\, x_{ijk} \leq |C| - 1
+\quad \forall i,j \in C,\ i \neq j,\ \forall k \in K
+\]
+
+The implementation adds depot start and end rules and vehicle-usage linking. The linking constraints
+above matter: without them, capacity would be decoupled from the routing variables and could be
+satisfied vacuously.
+
+\section{Agentic Replanning Workflow}
+
+\subsection{Graph}
+
+The workflow is implemented with LangGraph. Each node is a specialized agent class inheriting from
+\path{RoutingWorkflowAgent}, which keeps the graph wiring thin and gives every step a shared contract
+for trace and error handling.
+
+\begin{verbatim}
+extract_event
+      |
+      v
+solve_base
+      |
+      v
+apply_event
+      |
+      v
+generate_candidate
+      |
+      v
+validate_candidate
+      |
+      +-- valid ----> compose_response
+      |
+      +-- invalid --> repair_candidate
+                            |
+                            +-- valid ----> compose_response
+                            |
+                            +-- invalid --> solver_fallback
+                                                  |
+                                                  v
+                                          compose_response
+\end{verbatim}
+
+If event extraction finds no new event but a context window exists, the workflow answers as a
+conversational follow-up rather than forcing a replanning action.
+
+\subsection{Agent Responsibilities}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{10.5cm}}
+\toprule
+Agent & Responsibility \\
+\midrule
+\endhead
+\path{ExtractEventAgent} & Extract the operational event from user text; report method and confidence. \\
+\path{SolveBaseAgent} & Solve the current scenario before mutation; validate the base plan. \\
+\path{ApplyEventAgent} & Apply the disruption to the scenario and record the mutation diff. \\
+\path{GenerateCandidateAgent} & Generate a route candidate from the solver, an API model or a local LoRA. \\
+\path{ValidateCandidateAgent} & Check candidate feasibility against the deterministic contract. \\
+\path{RepairCandidateAgent} & Attempt conservative structural repair of an invalid candidate. \\
+\path{SolverFallbackAgent} & Re-solve with Pyomo + HiGHS when candidate and repair both fail. \\
+\path{ComposeResponseAgent} & Build the response payload with plan, validation, comparison and trace. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Event Extraction}
+
+Supported events are blocked arc, customer unavailable and priority change. Extraction runs in two
+modes: a deterministic rule-based extractor, and an LLM extractor backed by the orchestrator model
+with rule-based fallback.
+
+The LLM extractor is not trusted blindly. Its output is parsed into an explicit event object and
+rejected if it references nodes that do not exist in the scenario or an unsupported event type. If
+the provider is unavailable or returns invalid JSON, extraction falls back to the rule-based path.
+
+\subsection{Candidate Generation Modes}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+Backend & Behaviour \\
+\midrule
+\path{solver} & Pyomo + HiGHS as candidate generator. Deterministic; used in tests. \\
+\path{api} & The trained LoRA served through an OpenAI-compatible API. \\
+\path{local} & The LoRA adapter loaded directly in the API process. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both model-backed modes first check whether the existing plan survives the event. If it does, the
+plan is reused and the model is not called at all --- many operational events do not invalidate the
+current route.
+
+When a candidate fails validation, the specific violations are serialized back to the model as a
+structured correction prompt, for up to three attempts, before the workflow falls through to the
+solver.
+
+\section{The Validation Contract}
+
+\subsection{Rules}
+
+Every candidate plan, regardless of origin, is checked against the same deterministic rules:
+
+\begin{itemize}
+  \item every active required customer is served exactly once;
+  \item inactive or unavailable customers are not served;
+  \item no unknown customer or vehicle identifiers appear;
+  \item no blocked arc is traversed;
+  \item vehicle capacity is respected;
+  \item every route starts and ends at the depot.
+\end{itemize}
+
+Two properties make this more than a checklist. First, the validator recomputes load and distance
+from the scenario rather than trusting the values in the candidate; the model supplies only the
+visit sequence, so a hallucinated number cannot reach the output. Second, validation failure is
+treated as a prompt rather than an error, feeding the violations back for correction.
+
+\subsection{Repair and Fallback}
+
+Repair is deliberately conservative. It performs only structural cleanups that cannot invent new
+optimization decisions: scenario identifier alignment, removal of inactive or duplicated stops,
+depot boundary normalization, and recomputation of load and distance. Capacity violations, missing
+customers and any genuine rerouting remain the solver's responsibility.
+
+The repaired plan is re-validated before acceptance. If it still fails, the solver fallback produces
+an authoritative plan, which is itself validated before being returned.
+
+\subsection{Traceability}
+
+Every node appends trace metadata, exposed in the frontend as an agent execution panel: extraction
+confidence and method, candidate source, validation status, repair and fallback decisions, and the
+final route source. This is what makes the central claim inspectable rather than asserted --- an
+operator can see which component produced the plan they are looking at.
+
+\section{AI Engineering Components}
+
+Beyond the routing policy and the solver, the system carries three components that make the
+conversational surface work: a rolling conversation memory, a retrieval layer over project
+documentation, and a route question-answering pipeline. They are described here because they
+constitute a meaningful part of the implementation and are visible in the operator interface.
+
+\subsection{Conversation Memory and Context Window}
+
+Conversations, messages and agent runs are persisted in MongoDB. On top of the raw message log, the
+system maintains a \emph{context window} per conversation --- a compact, bounded summary of state
+that survives across turns without replaying the full history into the prompt.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Field & Content \\
+\midrule
+\path{summary} & Rolling narrative: latest event, validation, replanning impact. \\
+\path{recent_message_ids} & Identifiers of the last $N$ messages. \\
+\path{facts} & Durable facts accumulated for the conversation. \\
+\path{open_constraints} & Active operational constraints, capped at the last 20. \\
+\path{last_event} & Most recent structured event. \\
+\path{last_plan} & Most recent accepted plan. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The window is rebuilt after each agentic run. The previous summary is carried forward and extended
+with the new event, the validation outcome, and the replanning impact --- distance delta and removed
+customers --- then truncated to a character budget, keeping the most recent text. Open constraints
+accumulate without duplication so that an active blockage remains in scope across turns.
+
+Two details matter operationally. First, when a turn is answered as a conversational follow-up rather
+than a replan, the window does not re-record an event, which prevents a question about an existing
+disruption from being mistaken for a new one. Second, because the window carries \path{last_plan},
+the system can answer questions about the current route without re-solving.
+
+\subsection{Retrieval-Augmented Generation}
+
+The retrieval layer indexes project documentation so that questions about system behaviour can be
+answered from written sources rather than model recall.
+
+\paragraph{Ingestion and chunking.}
+Ingestion accepts \path{.md}, \path{.txt}, \path{.tex}, \path{.py}, \path{.json}, \path{.yaml},
+\path{.yml} and \path{.toml}, skipping build and environment directories. Text is chunked at 1200
+characters with 160 characters of overlap. Chunk boundaries snap to the nearest newline, or failing
+that the nearest space, but only when that boundary falls past the midpoint of the window --- this
+avoids degenerate short chunks while keeping splits off mid-word.
+
+\paragraph{Embeddings.}
+Two interchangeable backends implement a common \path{EmbeddingClient} protocol:
+
+\begin{itemize}
+  \item \path{hash} (default): a deterministic local embedding. Each token is hashed with BLAKE2b
+        into a bucket of a 384-dimensional vector with a signed contribution, and the result is
+        L2-normalized. It requires no model server, which makes the retrieval pipeline testable on
+        CPU and reproducible across runs.
+  \item \path{api}: an OpenAI-compatible \path{/embeddings} endpoint, with returned vectors fitted to
+        the configured dimension by truncation or zero-padding.
+\end{itemize}
+
+\paragraph{Storage and search.}
+A repository protocol has two implementations. The in-memory version scores chunks by cosine
+similarity in Python and is used for tests. The production version stores chunks in PostgreSQL with
+the \path{pgvector} extension, creating the extension and schema on first use, with the embedding
+column typed \path{vector(d)} at the configured dimension. Retrieval uses the cosine distance
+operator:
+
+\begin{verbatim}
+SELECT ..., 1 - (c.embedding <=> %s::vector) AS score
+FROM chunks c
+ORDER BY c.embedding <=> %s::vector
+LIMIT %s
+\end{verbatim}
+
+The subtraction converts distance into a similarity score for ranking and display.
+
+\subsection{Route Question Answering}
+
+Not every driver message is a disruption. Questions such as ``what is my next stop?'' or ``why did
+the plan change?'' should be answered without mutating the scenario. These are handled by a separate
+pipeline in the conversation service, whose stages are surfaced individually in the agent execution
+panel:
+
+\begin{enumerate}
+  \item \path{route_lookup} --- resolve the route identifier to a stored route, driver and scenario;
+  \item \path{route_fact_builder} --- assemble deterministic facts from the stored plan: stop
+        sequence, distances, loads, status;
+  \item \path{route_qa_rag} --- retrieve supporting documentation chunks when retrieval is enabled;
+  \item \path{route_qa_model} --- compose the natural-language answer with the orchestrator model.
+\end{enumerate}
+
+The ordering is deliberate. Route facts are computed from persisted data before the model is called,
+so the answer is grounded in the actual plan rather than generated from the conversation alone. If
+the model call fails, the pipeline records the failure in the trace and degrades to a fact-based
+answer rather than returning nothing.
+
+The classification between question answering and replanning matters: a message implying a route
+change must be routed into the replanning workflow, where the validation contract applies. The Q\&A
+path is explicitly not an authority on feasibility.
 
 \section{Dataset Generation}
 
-\subsection{Generation Methodology}
+\subsection{Methodology}
 
-The datasets were generated synthetically to provide scale, repeatability, and reliable labels. The generation pipeline was:
+Datasets were generated synthetically for scale, repeatability and reliable labels:
 
 \begin{enumerate}
-  \item generate a CVRP instance with depot, customers, demands, vehicles, capacities, and distance matrix;
-  \item solve the base route plan with Pyomo + HiGHS;
-  \item apply an operational event, such as a blocked arc or unavailable customer;
-  \item re-solve the disrupted scenario with the solver;
+  \item generate a CVRP instance with depot, customers, demands, vehicles, capacities and distance
+        matrix;
+  \item solve the base plan with Pyomo + HiGHS;
+  \item apply an operational event;
+  \item re-solve the disrupted scenario;
   \item validate the replanned route;
-  \item serialize the scenario, event, and target output into compact SFT JSONL;
-  \item convert compact SFT rows into chat-message JSONL for instruction fine-tuning.
+  \item serialize scenario, event and target into compact SFT JSONL;
+  \item convert compact rows into chat-message JSONL for instruction fine-tuning.
 \end{enumerate}
 
-This approach makes the LLM learn from prescriptive optimization outputs while preserving a deterministic oracle for auditing and runtime validation.
+The solver therefore labels its own training set. The model learns to imitate prescriptive decisions
+while the same engine remains available as a deterministic oracle at runtime.
 
 \subsection{Generated Datasets}
 
@@ -178,27 +536,21 @@ Dataset & Total & Train & Validation & Test & Purpose \\
 \path{training_capacity_tight_50k_parallel} & 50000 & 40000 & 5000 & 5000 & Emphasis on capacity pressure. \\
 \path{training_blocked_arc_20k_parallel} & 20000 & 16000 & 2000 & 2000 & Emphasis on blocked arcs. \\
 \path{training_curriculum_100k} & 100000 & 80000 & 10000 & 10000 & Consolidated curriculum dataset. \\
-\path{training_error_driven_20k} & 20000 & 16000 & 2000 & 2000 & Continuation data focused on observed errors. \\
+\path{training_error_driven_20k} & 20000 & 16000 & 2000 & 2000 & Continuation focused on observed errors. \\
 \path{training_error_driven_10k_v6} & 10000 & 8000 & 1000 & 1000 & Additional continuation after v5. \\
 \bottomrule
 \end{longtable}
 
-The corresponding chat-format datasets were stored under \path{data/chat_training_*}. The main split strategy was 80\% training, 10\% validation, and 10\% test. Local audits found zero invalid rows in the principal datasets used for training.
+The split strategy was 80\% training, 10\% validation, 10\% test. Audits found zero invalid rows in
+the principal training datasets.
 
 \section{Fine-Tuning Strategy}
 
 \subsection{Training Algorithm}
 
-The selected training algorithm was supervised fine-tuning with LoRA/QLoRA. Training used:
-
-\begin{itemize}
-  \item Hugging Face Transformers for model loading;
-  \item TRL \path{SFTTrainer} for supervised fine-tuning;
-  \item PEFT for LoRA adapter management;
-  \item bitsandbytes for 4-bit model loading.
-\end{itemize}
-
-The optimization target is causal language-model loss over the assistant response tokens. In practice, the model learns to map a structured route replanning prompt to the expected JSON route candidate.
+Supervised fine-tuning with LoRA/QLoRA, using Hugging Face Transformers for model loading, TRL
+\path{SFTTrainer} for supervised fine-tuning, PEFT for adapter management and bitsandbytes for 4-bit
+loading. The optimization target is causal language-model loss over the assistant response tokens.
 
 \subsection{Final LoRA Configuration}
 
@@ -223,11 +575,10 @@ Compute dtype & bfloat16 \\
 \end{tabular}
 \end{table}
 
-This configuration trains adapter matrices in attention and MLP projection modules. The original dense weights of the base model remain frozen.
-
 \section{Training Methodology and Parameters}
 
-Training was conducted in stages. Each continuation was evaluated against a fixed benchmark before deciding whether to keep training or freeze the current model.
+Training was conducted in stages, each continuation resuming the previous adapter and evaluated
+against the same fixed benchmark before deciding whether to continue or stop.
 
 \begin{longtable}{>{\raggedright\arraybackslash}p{1.1cm}rrrrrr>{\raggedright\arraybackslash}p{3.2cm}}
 \toprule
@@ -236,26 +587,21 @@ Version & Train rows & Eval rows & Steps & Batch & LR & Time & Notes \\
 \endhead
 v3 & 24000 & 500 & 3000 & 1 $\times$ 8 accum. & $5\cdot10^{-5}$ & 5h53m & First stable full training on the 30K compact dataset. \\
 v4 & 56000 & 1000 & 2300 & 8 & $1.7\cdot10^{-5}$ & 3h44m & Hard-data continuation using SDPA and checkpoint resume. \\
-v5 & 16000 & 1000 & 1500 & 8 & $1\cdot10^{-5}$ & 2h22m & Error-driven continuation. Selected final version. \\
-v6 & 8000 & 500 & 800 & 8 & $7\cdot10^{-6}$ & 1h18m & Additional continuation; slightly regressed. \\
+v5 & 16000 & 1000 & 1500 & 8 & $1\cdot10^{-5}$ & 2h22m & Error-driven continuation. Selected version. \\
+v6 & 8000 & 500 & 800 & 8 & $7\cdot10^{-6}$ & 1h18m & Additional continuation; not selected. \\
 \bottomrule
 \end{longtable}
 
-The stabilized training setup used:
+Total training time across the four runs was approximately 13 hours on a single RTX 3090. The
+decreasing learning rate across stages reflects a deliberate curriculum: broad fitting first, then
+progressively finer correction against observed failure modes.
 
-\begin{itemize}
-  \item \path{--max-seq-length 2048} for v4/v5/v6 continuations;
-  \item \path{--bf16};
-  \item \path{--bnb-compute-dtype bfloat16};
-  \item \path{--optim adamw_torch};
-  \item \path{--lr-scheduler-type cosine};
-  \item \path{--max-grad-norm 0.3};
-  \item \path{--no-eval-during-train};
-  \item \path{dataset_num_proc=1};
-  \item \path{dataloader_num_workers=0}.
-\end{itemize}
+The stabilized setup used \path{--max-seq-length 2048}, \path{--bf16},
+\path{--bnb-compute-dtype bfloat16}, \path{--optim adamw_torch},
+\path{--lr-scheduler-type cosine}, \path{--max-grad-norm 0.3}, \path{--no-eval-during-train},
+\path{dataset_num_proc=1} and \path{dataloader_num_workers=0}. One epoch per run.
 
-The representative v5 training command was:
+The representative v5 command was:
 
 \begin{verbatim}
 uv run python scripts/train_lora.py \
@@ -282,11 +628,15 @@ uv run python scripts/train_lora.py \
   --no-eval-during-train
 \end{verbatim}
 
-\section{Training Feedback}
+\section{Evaluation}
 
 \subsection{Training Metrics}
 
-The logs show that loss quickly converged to the 0.26--0.28 range after the initial learning stage. Mean token accuracy stabilized around 0.89. These metrics indicate that the model learned the response format and common routing patterns, but they are not sufficient to prove operational correctness. The primary evaluation criterion remained route feasibility.
+Loss converged to the 0.26--0.28 range after the initial learning stage, and mean token accuracy
+stabilized around 0.89. These metrics indicate that the model learned the response format and common
+routing patterns, but they are not evidence of operational correctness: the curve is essentially flat
+across v4, v5 and v6 while the operational metrics still differ. This is precisely why loss was not
+used as the selection criterion.
 
 \begin{table}[h]
 \centering
@@ -304,7 +654,11 @@ v6 & 0.2653 & 0.8917 & $4.307\cdot10^6$ & 4700s \\
 
 \subsection{Operational Evaluation}
 
-All candidate models were evaluated on the same 1,000-example sample from \path{data/training_curriculum_100k/sft_test.jsonl}. The main metric was feasible-candidate rate. Exact match was tracked but treated as secondary because CVRP can have multiple valid route plans for the same scenario.
+All versions were evaluated on the same 1,000-example sample from
+\path{data/training_curriculum_100k/sft_test.jsonl}. The primary metric is the feasible-candidate
+rate. Exact match was tracked but treated as secondary, because a CVRP instance commonly admits
+several equally optimal plans, so matching the reference sequence measures conformity rather than
+quality.
 
 \begin{table}[h]
 \centering
@@ -320,71 +674,151 @@ v6 & 100.0\% & 94.0\% & 5.4\% & 50 & 10 \\
 \end{tabular}
 \end{table}
 
-The main result is that v5 improved feasibility and reduced capacity violations relative to v4. The later v6 continuation did not improve the fixed benchmark and was not selected.
+The improvement from v3 to v5 is substantial: feasibility rises 2.7 points and capacity violations
+fall by 36\%. The comparison between v5 and v6 requires more care. A difference of 0.4 percentage
+points on $n = 1000$ corresponds to four examples; the 95\% confidence interval for a proportion of
+0.944 at that sample size is approximately $\pm 1.4$ points, so v5 and v6 are statistically
+indistinguishable on feasibility. The honest statement is that the additional continuation produced
+no measurable improvement, and v5 was retained as the stopping point rather than v6 being shown to
+regress.
 
-\section{Limitations Found}
+v5 was selected because it holds the best observed feasibility, the lowest count in both violation
+categories, and because the curve had flattened --- continuing to train without a new measured error
+target was not justified.
+
+\subsection{Capacity Boundary}
+\label{sec:capacity}
+
+Feasibility on the benchmark describes performance at the size the model was trained for. A separate
+benchmark measured how performance degrades as scenario cardinality grows, using strict validation
+and a viability threshold of 90\%.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrl}
+\toprule
+Customers & Strict valid rate & Avg. candidate latency & Dominant failure mode \\
+\midrule
+8  & 100\% & 1.59s & --- \\
+9  & 100\% & 1.71s & --- \\
+10 & 60\%  & 3.99s & customer omitted \\
+12 & 33\%  & --- & customer omitted \\
+14 & 0\%   & --- & customer omitted \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The usable boundary is 8--9 customers. Above it, the model omits customers rather than routing them
+poorly, and the omissions concentrate on identifiers at or beyond the edge of the training
+distribution, such as \path{C10} and above. This is a cardinality generalization limit rather than a
+routing-quality problem, and it will not be fixed by prompt engineering; it requires training data at
+larger cardinalities.
+
+Two caveats apply. The samples are small --- three to five scenarios per size --- so the intermediate
+rates carry wide uncertainty, though the trend and the qualitative failure mode are consistent.
+Second, exceeding the boundary does not produce incorrect plans in production: the cascade falls
+through to the solver on every request, trading latency for the same guarantee.
+
+\section{Engineering Practices}
+
+The system comprises roughly 11,800 lines of Python across 73 modules, with 24 test files. All
+domain and record types are immutable frozen dataclasses. Services and repositories are separated,
+with in-memory repository implementations as the default, so the entire test suite runs without a
+GPU, a database or a model server.
+
+Continuous integration is split into two jobs: fast API and agentic tests, and solver authority tests
+executed in forked subprocesses. The split is necessary because the Pyomo/HiGHS stack can trigger a
+native segmentation fault after repeated solver invocations within one Python process.
+
+Driver credentials are stored as bcrypt hashes and authentication issues signed JWTs; CORS origins
+are configurable rather than open; requests emit structured JSON logs with correlation identifiers.
+A placeholder JWT secret is detected at startup and replaced with a process-local random value, so a
+deployment that omits configuration cannot sign tokens with a publicly known key.
+
+\section{Limitations}
+\label{sec:limitations}
 
 \subsection{Model Limitations}
 
 \begin{itemize}
-  \item The model does not guarantee mathematical feasibility or optimality.
-  \item Residual violations remain. On the 1,000-example benchmark, v5 still produced 46 capacity violations and 9 blocked-arc violations.
-  \item Exact match is low, although this is partly expected for CVRP because multiple feasible solutions can exist.
-  \item Training data is synthetic; no real traffic, fleet telemetry, driver constraints, service times, or geospatial road-network data were used in this stage.
-  \item The primary training scope was small CVRP instances, approximately 8 customers.
+  \item The model does not guarantee feasibility or optimality. On the 1,000-example benchmark, v5
+        still produced 46 capacity violations and 9 blocked-arc violations.
+  \item Exact match is low, though this is partly expected for CVRP.
+  \item Training data is entirely synthetic. No real traffic, fleet telemetry, driver constraints,
+        service times or geospatial road-network data were used for training.
+  \item The usable scenario size is 8--9 customers, as measured in Section~\ref{sec:capacity}.
+\end{itemize}
+
+\subsection{Architectural Limitations}
+
+\begin{itemize}
+  \item The MTZ formulation has a loose linear relaxation; larger fleets would benefit from a
+        stronger branch-and-cut formulation or a dedicated routing solver.
+  \item Solver calls still execute inside the request lifecycle. Production use requires a worker
+        queue so that optimization leaves the request path.
+  \item Validation proves that a plan is correct \emph{for the mutated scenario}. It cannot prove
+        that the mutation corresponds to what the driver actually said. Event extraction is the one
+        stage the trust boundary does not cover, and a misread message produces a perfectly valid
+        answer to the wrong question.
+  \item The default embedding backend is the deterministic hash embedding. It makes the retrieval
+        pipeline reproducible and testable without a model server, but it is a bag-of-tokens
+        projection with no semantic representation: retrieval quality under it is lexical at best.
+        Meaningful retrieval requires configuring the API embedding backend, and the current
+        deployment has not been evaluated for retrieval precision or recall.
+  \item List endpoints support offset pagination but not cursor pagination or server-side filtering.
 \end{itemize}
 
 \subsection{Infrastructure Limitations}
 
 \begin{itemize}
-  \item Long-running generation and training jobs exposed native failures, including \path{exit status 139}, double-free errors, and a \path{torch.nn.Module.train} runtime issue.
-  \item FlashAttention was not successfully installed because the local environment used Python 3.12, Torch with CUDA 13.0, and an nvcc/CUDA stack without a compatible prebuilt wheel.
-  \item The stable workaround was to use SDPA, reduce preprocessing parallelism, disable evaluation during training, and use \path{adamw_torch}.
+  \item Long-running training and generation jobs exposed native failures, including
+        \path{exit status 139}, double-free errors, and a \path{torch.nn.Module.train} runtime issue.
+  \item FlashAttention could not be installed: the local environment used Python 3.12 with a
+        Torch/CUDA 13.0 stack for which no compatible prebuilt wheel was available. The stable
+        workaround was SDPA, reduced preprocessing parallelism, evaluation disabled during training,
+        and \path{adamw_torch}.
 \end{itemize}
 
 \section{Refinement Strategy}
 
-The next refinements should target operational feasibility, not marginal loss reduction. The recommended strategy is:
+In priority order:
 
 \begin{enumerate}
-  \item integrate v5 into the agentic routing module behind a deterministic validator;
-  \item implement repair for simple capacity, missing-customer, and blocked-arc violations;
-  \item use Pyomo + HiGHS fallback when validation or repair fails;
-  \item generate new error-driven datasets from actual validator failures;
-  \item train new continuations only if they beat v5 on the fixed benchmark;
-  \item test best-of-N route candidates with deterministic selection;
-  \item expand synthetic data to more customers, more vehicles, time windows, multiple depots, asymmetric costs, and richer disruption types;
-  \item include public VRP/CVRP benchmarks when moving beyond the current POC scope;
-  \item revisit FlashAttention or Unsloth only after stabilizing a compatible CUDA stack.
+  \item harden event extraction with confidence thresholds and explicit confirmation before mutating
+        a scenario, closing the gap identified in Section~\ref{sec:limitations};
+  \item extend the cardinality boundary with curriculum data at 10, 12, 16 and 24 customers, and
+        evaluate by scenario size rather than a random split;
+  \item move optimization off the request path with a worker queue, persisted solver artifacts and
+        time limits tuned per scenario class;
+  \item instrument the cascade in production, tracking fallback rate and violation modes as the live
+        measure of policy quality;
+  \item generate new error-driven datasets from actual validator failures, and train continuations
+        only when they beat the incumbent on the fixed benchmark;
+  \item evaluate best-of-$N$ candidate generation with deterministic selection;
+  \item expand scenario richness: time windows, multiple depots, asymmetric costs, more disruption
+        types;
+  \item validate against public VRP benchmarks and, ultimately, historical operational routes.
 \end{enumerate}
 
-\section{Final Version and Runtime Contract}
+\section{Runtime Contract}
 
-The selected model is:
-
-\begin{verbatim}
-outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5
-\end{verbatim}
-
-The stable operational alias is:
+The selected adapter is \path{outputs/models/adaptiveroute-qwen2_5-7b-lora-error20k-v5}, with the
+stable operational alias \path{outputs/models/adaptiveroute-routing-policy-current}.
 
 \begin{verbatim}
-outputs/models/adaptiveroute-routing-policy-current
+driver message
+-> event extraction        (orchestrator, with deterministic fallback)
+-> base solve              (Pyomo + HiGHS)
+-> scenario mutation
+-> candidate generation    (LoRA v5, ~1.7s)
+-> deterministic validation
+-> conservative repair     if invalid
+-> Pyomo + HiGHS fallback  if still invalid
+-> validated response
 \end{verbatim}
 
-The recommended runtime contract is:
-
-\begin{verbatim}
-scenario + base_plan + event
--> LoRA v5 candidate generation
--> JSON parsing
--> deterministic route validation
--> repair if needed
--> Pyomo + HiGHS fallback if still invalid
--> final response
-\end{verbatim}
-
-The final accepted response should include candidate source, validation result, rejected violations if any, route distance, vehicle loads, and final route JSON.
+The accepted response carries the candidate source, the validation result, any rejected violations,
+route distance and vehicle loads, and the final route JSON.
 
 \section{Training and Test Environment}
 
@@ -414,28 +848,24 @@ HiGHS/highspy & 1.15.1 \\
 \end{tabular}
 \end{table}
 
-\section{Time Spent}
-
-\begin{longtable}{>{\raggedright\arraybackslash}p{5cm}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{5cm}}
-\toprule
-Activity & Observed time & Notes \\
-\midrule
-\endhead
-Initial smoke training & 3m24s & 20 steps; validated the basic pipeline. \\
-v3 30K training & 5h53m & First stable full training run. \\
-v4 hard 70K continuation & 3h44m & Continued from checkpoint with SDPA. \\
-v5 error-driven 20K continuation & 2h22m & Selected final model. \\
-v6 error-driven 10K continuation & 1h18m & Did not outperform v5. \\
-1,000-example prediction generation & 20--25min per model & Observed during v5/v6 evaluation runs. \\
-Synthetic dataset generation & Long chunked/parallel jobs & Monitored with \path{screen}, \path{systemd-inhibit}, and \path{tee} logs. \\
-\bottomrule
-\end{longtable}
-
 \section{Conclusion}
 
-The selected approach is technically defensible for a five-day proof of concept. The prescriptive Pyomo + HiGHS layer provides deterministic labels, validation, and fallback. The LoRA/QLoRA fine-tuning process specializes an instruction-following 7B model into a route-candidate generator. The final model decision was based on operational feasibility, not only training loss.
+AdaptiveRoute demonstrates that an unreliable fast component can be used safely when the
+architecture never depends on it being correct. The fine-tuned routing policy returns feasible
+replans 94.4\% of the time at the scenario size it was trained for; the remaining 5.6\% is absorbed
+by validation, conservative repair and an exact solver fallback, so the failure rate is a latency
+cost rather than a correctness risk.
 
-The v5 adapter is the current best stopping point. It achieved the highest feasible-candidate rate among evaluated models and reduced the most important violation categories. The next engineering step should be integration into the LangGraph-based agentic AI module, with a validator, repair layer, and solver fallback. Further training should be driven by runtime validation failures rather than by generating more synthetic data without a measured error target.
+Three results are worth separating. The first is the policy itself, which is a competent but bounded
+artifact: useful to 8--9 customers, measured rather than assumed, with a clear path to extension. The
+second is the two-model split, which assigns breadth and precision to different components rather
+than asking one model to provide both. The third, and the most durable, is the validation contract:
+a single deterministic arbiter that every plan must pass regardless of origin, with the trace exposed
+so that an operator can see which component produced what.
+
+The remaining open edge is event extraction. Validation proves a plan is correct for the scenario it
+was given; it cannot prove the scenario matches what the driver reported. Closing that gap is the
+next substantive piece of work, and it is a guardrail problem rather than a modelling one.
 
 \begin{thebibliography}{9}
 
@@ -444,6 +874,30 @@ G. B. Dantzig and J. H. Ramser.
 \newblock The Truck Dispatching Problem.
 \newblock \textit{Management Science}, 6(1):80--91, 1959.
 \newblock \url{https://doi.org/10.1287/mnsc.6.1.80}
+
+\bibitem{mtz}
+C. E. Miller, A. W. Tucker and R. A. Zemlin.
+\newblock Integer Programming Formulation of Traveling Salesman Problems.
+\newblock \textit{Journal of the ACM}, 7(4):326--329, 1960.
+\newblock \url{https://doi.org/10.1145/321043.321046}
+
+\bibitem{pointer}
+O. Vinyals, M. Fortunato and N. Jaitly.
+\newblock Pointer Networks.
+\newblock \textit{Advances in Neural Information Processing Systems}, 2015.
+\newblock \url{https://arxiv.org/abs/1506.03134}
+
+\bibitem{kool2019}
+W. Kool, H. van Hoof and M. Welling.
+\newblock Attention, Learn to Solve Routing Problems!
+\newblock \textit{International Conference on Learning Representations}, 2019.
+\newblock \url{https://arxiv.org/abs/1803.08475}
+
+\bibitem{bengio2021}
+Y. Bengio, A. Lodi and A. Prouvost.
+\newblock Machine Learning for Combinatorial Optimization: A Methodological Tour d'Horizon.
+\newblock \textit{European Journal of Operational Research}, 290(2):405--421, 2021.
+\newblock \url{https://arxiv.org/abs/1811.06128}
 
 \bibitem{vaswani2017}
 A. Vaswani et al.
@@ -478,6 +932,12 @@ M. L. Bynum et al.
 HiGHS.
 \newblock High-performance open-source software for linear optimization.
 \newblock \url{https://highs.dev/}
+
+\bibitem{osrm}
+D. Luxen and C. Vetter.
+\newblock Real-time Routing with OpenStreetMap Data.
+\newblock \textit{ACM SIGSPATIAL GIS}, 513--516, 2011.
+\newblock \url{https://doi.org/10.1145/2093973.2094062}
 
 \end{thebibliography}
 

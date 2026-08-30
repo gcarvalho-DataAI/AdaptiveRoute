@@ -16,7 +16,7 @@ AdaptiveRoute is a small routing replanning engine for last-mile logistics. The 
 - [Training](docs/TRAINING.md) — SFT/LoRA workflow and commands.
 - [Model Decision](docs/MODEL_DECISION.md) — selected LoRA adapter and model comparison.
 - [Model Capacity Benchmark](docs/MODEL_CAPACITY_BENCHMARK.md) — current scenario-size viability boundary.
-- [Fine-tuning Report](docs/model_finetuning_report.pdf) — formal report for external review.
+- [Technical Report](docs/technical_report.pdf) — formal project report for external review: architecture, agentic workflow, validation contract, fine-tuning and measured limits.
 
 ## Setup
 
